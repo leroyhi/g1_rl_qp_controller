@@ -1,0 +1,97 @@
+{
+  "dim": 98,
+  "scaling": "no term applies a scale in this task: every value is in SI units as defined below. The graph's own normaliser absorbs the rest.",
+  "note": "concatenated in this order, single frame, no history. Both policies take this exact vector. The policy ONNX includes the observation normaliser (Sub/Div at the head), so feed it RAW values.",
+  "terms": [
+    {
+      "name": "base_ang_vel",
+      "cols": [
+        0,
+        3
+      ],
+      "definition": "pelvis angular velocity in the pelvis frame, rad/s (gyro)",
+      "scale": null,
+      "params": {}
+    },
+    {
+      "name": "projected_gravity",
+      "cols": [
+        3,
+        6
+      ],
+      "definition": "unit gravity vector expressed in the pelvis frame",
+      "scale": null,
+      "params": {}
+    },
+    {
+      "name": "command",
+      "cols": [
+        6,
+        9
+      ],
+      "definition": "commanded twist (vx, vy, wz) in the pelvis frame; ZERO while the recovery policy holds control",
+      "scale": null,
+      "params": {
+        "command_name": "twist"
+      }
+    },
+    {
+      "name": "phase",
+      "cols": [
+        9,
+        11
+      ],
+      "definition": "(sin, cos) of 2*pi*((t mod period)/period), an OPEN-LOOP clock on time since start, not synchronised to the actual gait; forced to (0, 0) whenever norm(command) < 0.1, which is the case throughout a handover",
+      "scale": null,
+      "params": {
+        "period": "0.6",
+        "command_name": "twist"
+      }
+    },
+    {
+      "name": "joint_pos",
+      "cols": [
+        11,
+        40
+      ],
+      "definition": "q - default_pos, rad, natural joint order (see plant.joints)",
+      "scale": null,
+      "params": {}
+    },
+    {
+      "name": "joint_vel",
+      "cols": [
+        40,
+        69
+      ],
+      "definition": "qd, rad/s, natural joint order",
+      "scale": null,
+      "params": {}
+    },
+    {
+      "name": "actions",
+      "cols": [
+        69,
+        98
+      ],
+      "definition": "the RAW action vector output by whichever policy acted last step, before action_scale/action_offset are applied; zero on the first step",
+      "scale": null,
+      "params": {}
+    }
+  ],
+  "command_ranges": {
+    "lin_vel_x": [
+      -0.5,
+      0.5
+    ],
+    "lin_vel_y": [
+      -0.25,
+      0.25
+    ],
+    "ang_vel_z": [
+      -0.7,
+      0.7
+    ]
+  },
+  "at_handover": "command the recovery policy a zero twist. The labels the estimator was trained on were produced that way; a non-zero command invalidates them."
+}
