@@ -1,0 +1,7 @@
+# Disarmed for 8 s: the robot must hold its posture. Then armed: it must take over without falling.
+duration: 20.0
+fall_height: 0.4
+fall_tilt_deg: 80.0
+start_armed: false
+events:
+  - {t: 8.0, arm: true}

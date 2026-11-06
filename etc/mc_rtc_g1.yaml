@@ -4,6 +4,5 @@ MainRobot: G1_29dof
 Enabled: G1RLQPController
 Timestep: 0.002
 IncludeHalfSitController: false
-# No joystick by default: until its first event, mc_joystick_plugin reports the sticks at (0, 0), which
-# RLuseJoyStickInputs reads as a full-scale command. Command through the GUI instead.
-Plugins: []
+# Sticks: command. Cross: walking policy. Circle: recovery policy. Both arm the policy if needed.
+Plugins: [mc_joystick_plugin]

@@ -83,6 +83,16 @@ struct G1RLQPController_DLLAPI G1RLQPController : public mc_control::fsm::Contro
   void RLuseJoyStickInputs();
   void RLuseKeyboardInputs();
 
+  /** @brief Start the policy. Disarmed, the robot holds its last target. */
+  void armPolicy();
+  /** @brief Stop the policy, holding its last output. */
+  void holdPolicy();
+
+  /** @brief Give control to the walking policy, arming it if needed. */
+  void selectWalkingPolicy();
+  /** @brief Give control to the catch policy, arming it if needed. It holds until selectWalkingPolicy(). */
+  void selectRecoveryPolicy();
+
   /** @brief Enable or disable the CBF-QP layer at runtime. */
   void activateQPControl(bool activate);
 
@@ -148,6 +158,18 @@ private:
   bool toggleKeyboard = false;
   bool controllerAvailable = false;
 
+  // Joystick loss latch: mc_joystick_plugin's Joystick::connected only means "its device was opened once". After an
+  // unplug the flag stays true and the sticks stay frozen, so the device is checked directly. Once lost, the command
+  // stays at zero until the device is back and the sticks move: after a replug that takes the plugin's Reset button.
+  bool joystickSeen_ = false;
+  bool joystickLost_ = false;
+  bool joystickDevicePresent_ = true;
+  int joystickCheckCountdown_ = 0;
+  static constexpr int joystickCheckPeriod_ = 50; // 0.1 s at 500 Hz
+  Eigen::Vector4d joystickFrozen_ = Eigen::Vector4d::Zero();
+  bool crossPressed_ = false;
+  bool circlePressed_ = false;
+
   std::string robotName_;
 
   // --- CBF-QP constraint parameters ---
@@ -166,10 +188,8 @@ private:
   rlqp::RLPolicyRuntime rlRuntime_;
 
   // --- Velocity Cmd Params ---
-  std::vector<bool> DirectionButtons = std::vector<bool>(4, false); // Up, Down, Left, Right
-  double joystickDeadZone = 0.02; // Dead zone for joystick inputs
-  Eigen::Vector2d leftStick = Eigen::Vector2d(0.5, 0.5); // x (UP), y (LEFT)
-  Eigen::Vector2d rightStick = Eigen::Vector2d(0.5, 0.5); // x (UP), y (LEFT)
+  double joystickDeadZone = 0.05; // On the stick's [0, 1] range, whose rest position is 0.5
+  double joystickRampRate = 0.5; // Rate limit of the command, per second
 
   double maxVelCmd;
   double maxYawCmd;

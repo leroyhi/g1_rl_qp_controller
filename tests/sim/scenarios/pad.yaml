@@ -1,0 +1,16 @@
+# The gamepad path without a gamepad: starts disarmed, cross arms and walks, circle holds recovery, cross goes back.
+duration: 22.0
+fall_height: 0.4
+fall_tilt_deg: 80.0
+start_armed: false
+fake_joystick: true
+events:
+  # The real plugin reports (0, 0) until the device's first events. Disarmed, the robot must not care.
+  - {t: 0.05, pad: {left: [0.5, 0.5], right: [0.5, 0.5]}}
+  - {t: 2.0, pad: {cross: true}}
+  - {t: 2.1, pad: {cross: false}}
+  - {t: 4.0, pad: {left: [0.8, 0.5]}}
+  - {t: 10.0, pad: {circle: true}}
+  - {t: 10.1, pad: {circle: false}}
+  - {t: 16.0, pad: {cross: true}}
+  - {t: 16.1, pad: {cross: false}}

@@ -15,6 +15,7 @@ set(controller_SRC
   observation/Observation.cpp
   observation/Observations.cpp
   observation/ObservationManager.cpp
+  policy/FallSwitch.cpp
   policy/PolicyConfig.cpp
   policy/RLPolicyInterface.cpp
   policy/RLPolicyRuntime.cpp
@@ -27,6 +28,7 @@ set(controller_HDR
   ../include/observation/Observation.h
   ../include/observation/Observations.h
   ../include/observation/ObservationManager.h
+  ../include/policy/FallSwitch.h
   ../include/policy/PolicyConfig.h
   ../include/policy/RLPolicyInterface.h
   ../include/policy/RLPolicyRuntime.h

@@ -72,3 +72,19 @@ init: G1RLQPController_Initial
 
 policies_root: "@CMAKE_CURRENT_SOURCE_DIR@/policies"
 default_policy: weak
+
+# Gain ratio while disarmed, on top of the policy's gains: Kp * ratio, Kd * sqrt(ratio). The policy's gains cannot hold
+# a passive robot up: in mc_mujoco it falls within 2 s at ratios 1, 3 and 5, and stands at 8. Tuned in simulation only.
+hold_pd_gains_ratio: 8.0
+
+# Hands control over to the catch policy when the walking policy is about to fall.
+fall_switch:
+  enabled: true
+  folder: "@CMAKE_CURRENT_SOURCE_DIR@/policies/fall_switch"
+  walking_policy: weak
+  recovery_policy: recovery_v0
+  recovery_onnx: "@CMAKE_CURRENT_SOURCE_DIR@/policies/recovery_v0/recovery_v0.onnx"
+  # Source of tilt_rate. It must give the angular velocity in the pelvis frame. On hardware, a gyro on the pelvis.
+  gyro_sensor: FloatingBase
+  # Not settled: the bundle's README says 25 (0.5 s), its limit_kernel.json says 10.
+  release_dwell_steps: 25

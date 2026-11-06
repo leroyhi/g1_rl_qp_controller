@@ -56,6 +56,21 @@ def segments(command):
     return list(zip(bounds[:-1], bounds[1:]))
 
 
+def report_fall_switch(log, t, ticks):
+    holding = log.scalar("G1RLQPController_FallSwitch_holdingRecovery") > 0.5
+    p = log.scalar("G1RLQPController_FallSwitch_p")
+    inside = log.scalar("G1RLQPController_FallSwitch_inside") > 0.5
+    distance2 = log.scalar("G1RLQPController_FallSwitch_mahalanobis2")
+    print(f"fall switch: recovery held {holding.mean():.1%} of the time, p max {p[ticks].max():.3f},"
+          f" inside {inside[ticks].mean():.1%} of the ticks, d2 median {np.median(distance2[ticks]):.1f}")
+    print(f"  walking ticks only: p above 0.5 on {(p[ticks][~holding[ticks]] > 0.5).mean():.1%},"
+          f" inside {inside[ticks][~holding[ticks]].mean():.1%}")
+    changes = np.flatnonzero(np.diff(holding.astype(int))) + 1
+    for i in changes:
+        action = "switch to recovery" if holding[i] else "hand back to walking"
+        print(f"  t {t[i]:6.2f} {action}: p {p[i]:.3f}, d2 {distance2[i]:.1f}")
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("log", type=Path)
@@ -87,7 +102,10 @@ def main():
     updates = log.scalar("G1RLQPController_RL_update_count")
     ticks = np.flatnonzero(np.diff(updates) != 0) + 1
     periods = np.diff(t[ticks])
-    print(f"policy ticks {len(ticks)}, period min {periods.min() * 1e3:.1f} ms, max {periods[1:].max() * 1e3:.1f} ms")
+    if len(periods) > 1:
+        print(f"policy ticks {len(ticks)}, period min {periods.min() * 1e3:.1f} ms, max {periods[1:].max() * 1e3:.1f} ms")
+    else:
+        print(f"policy ticks {len(ticks)}")
 
     command = log.xyz("G1RLQPController_RL_effectiveCommand")
     velocity_world = log.xyz("FloatingBase_linearVelocity")
@@ -127,6 +145,9 @@ def main():
     vel_limit = np.array([j["velocity_limit"] for j in joints])
     print(f"largest |qd| / plant velocity limit: {(np.abs(qd) / vel_limit).max():.2f}"
           f" ({names[int((np.abs(qd) / vel_limit).max(axis=0).argmax())]})")
+
+    if "G1RLQPController_FallSwitch_p" in log.names and len(ticks) > 0:
+        report_fall_switch(log, t, ticks)
 
     for name in ("perf_SolverBuildAndSolve", "perf_ControllerRun"):
         duration = log.scalar(name)

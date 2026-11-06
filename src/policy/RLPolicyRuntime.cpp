@@ -47,21 +47,73 @@ void RLPolicyRuntime::configure(const mc_rtc::Configuration & controllerConfig,
 
   observationRegistry_ = makeDefaultObservationRegistry();
 
+  holdGainsRatio_ = controllerConfig_("hold_pd_gains_ratio");
+
   policyManager_.load(controllerConfig_, ctl.jointNames);
   loadPolicy(policyManager_.currentName(), ctl, torqueTask);
+
+  if(controllerConfig_.has("fall_switch"))
+    fallSwitch_.configure(controllerConfig_("fall_switch"), ctl.robot(), controllerJointOrder_);
 }
 
 void RLPolicyRuntime::reset(G1RLQPController & ctl)
 {
+  armed_ = false;
   phaseElapsedTime_ = 0.0;
   phaseNormalized_ = 0.0;
   resetObservationHistory(ctl);
   policyTimer_ = policyStepSize_;
   policyUpdateCount_ = 0;
+  if(fallSwitch_.configured()) fallSwitch_.reset();
+  holdCurrentPosture(ctl);
+  setPDGainsRatio(holdGainsRatio_, ctl.torqueJointTask);
+}
+
+void RLPolicyRuntime::holdCurrentPosture(G1RLQPController & ctl)
+{
+  const mc_rbdyn::Robot & robot = ctl.robot();
+  for(size_t i = 0; i < controllerJointOrder_.size(); ++i)
+    q_rl_(static_cast<Eigen::Index>(i)) = robot.mbc().q[robot.jointIndexByName(controllerJointOrder_[i])][0];
+}
+
+void RLPolicyRuntime::arm(G1RLQPController & ctl, const std::shared_ptr<mc_tasks::TorqueJointTask> & torqueTask)
+{
+  if(armed_ || !policyLoaded()) return;
+  setPDGainsRatio(policyManager_.current().pdGainsRatio, torqueTask);
+  phaseElapsedTime_ = 0.0;
+  phaseNormalized_ = 0.0;
+  currentAction_.setZero();
+  resetObservationHistory(ctl);
+  policyTimer_ = policyStepSize_;
+  policyUpdateCount_ = 0;
+  if(fallSwitch_.configured()) fallSwitch_.reset();
+  armed_ = true;
+  mc_rtc::log::warning("[RLPolicyRuntime] Policy '{}' ARMED", currentPolicyName());
+}
+
+void RLPolicyRuntime::hold(const std::shared_ptr<mc_tasks::TorqueJointTask> & torqueTask)
+{
+  if(!armed_) return;
+  armed_ = false;
+  setPDGainsRatio(holdGainsRatio_, torqueTask);
+  if(fallSwitch_.configured()) fallSwitch_.reset();
+  mc_rtc::log::warning("[RLPolicyRuntime] Policy DISARMED: holding the last target");
+}
+
+bool RLPolicyRuntime::fallSwitchActive() const
+{
+  return fallSwitch_.configured() && !fallSwitchFailed_ && currentPolicyName() == fallSwitch_.walkingPolicy();
+}
+
+const std::string & RLPolicyRuntime::activePolicyName() const
+{
+  return fallSwitchActive() && fallSwitch_.holdingRecovery() ? fallSwitch_.recoveryPolicy() : currentPolicyName();
 }
 
 void RLPolicyRuntime::runPolicyStepIfNeeded(G1RLQPController & ctl, double dt)
 {
+  if(!armed_) return;
+
   if(!policyLoaded())
   {
     mc_rtc::log::error("[RLPolicyRuntime] Cannot run policy: no ONNX policy loaded");
@@ -76,15 +128,30 @@ void RLPolicyRuntime::runPolicyStepIfNeeded(G1RLQPController & ctl, double dt)
 
   if(policyTimer_ < policyStepSize_) { return; }
 
+  // Before the new action, as in closed_loop.py: track_err compares the measured joints with the previous target, and
+  // a switch applies to this tick, whose observation already sees a zero command and a stopped clock.
+  if(fallSwitchActive())
+  {
+    try
+    {
+      fallSwitch_.step(ctl.realRobot(robotName_), q_rl_);
+    }
+    catch(const std::exception & e)
+    {
+      mc_rtc::log::error("[RLPolicyRuntime] Fall switch stopped after a failure: {}", e.what());
+      fallSwitchFailed_ = true;
+    }
+  }
+  const bool recovering = fallSwitchActive() && fallSwitch_.holdingRecovery();
+
   currentObservation_ = computeObservation(ctl);
 
   if(currentObservation_.size() != policy_->getObservationSize())
     mc_rtc::log::error_and_throw("[RLPolicyRuntime] Observation size mismatch. ObservationManager produced {}, ONNX expects {}.",
       currentObservation_.size(), policy_->getObservationSize());
 
-  currentAction_ = policy_->predict(currentObservation_);
+  currentAction_ = recovering ? fallSwitch_.recovery().predict(currentObservation_) : policy_->predict(currentObservation_);
   ++policyUpdateCount_;
-  // mc_rtc::log::warning("TEST {}", currentAction_);
 
   if(currentAction_.size() != static_cast<int>(actionToControllerMap_.size()))
     mc_rtc::log::error_and_throw("[RLPolicyRuntime] Action size mismatch. ONNX produced {}, active action mapping expects {} joints.",
@@ -112,6 +179,11 @@ void RLPolicyRuntime::runPolicyStepIfNeeded(G1RLQPController & ctl, double dt)
 void RLPolicyRuntime::reloadCurrentPolicy(G1RLQPController & ctl,
                                           const std::shared_ptr<mc_tasks::TorqueJointTask> & torqueTask)
 {
+  if(armed_)
+  {
+    mc_rtc::log::error("[RLPolicyRuntime] Refusing to reload the policy while ARMED: disarm first");
+    return;
+  }
   loadPolicy(policyManager_.currentName(), ctl, torqueTask);
 }
 
@@ -120,6 +192,11 @@ void RLPolicyRuntime::loadPolicyByName(const std::string & policyName,
                                        const std::shared_ptr<mc_tasks::TorqueJointTask> & torqueTask)
 {
   if(policyName == policyManager_.currentName()) { return; }
+  if(armed_)
+  {
+    mc_rtc::log::error("[RLPolicyRuntime] Refusing to switch policy while ARMED: disarm first");
+    return;
+  }
 
   loadPolicy(policyName, ctl, torqueTask);
 }
@@ -127,6 +204,11 @@ void RLPolicyRuntime::loadPolicyByName(const std::string & policyName,
 void RLPolicyRuntime::loadNextPolicy(G1RLQPController & ctl,
                                      const std::shared_ptr<mc_tasks::TorqueJointTask> & torqueTask)
 {
+  if(armed_)
+  {
+    mc_rtc::log::error("[RLPolicyRuntime] Refusing to switch policy while ARMED: disarm first");
+    return;
+  }
   policyManager_.selectNext();
   loadPolicy(policyManager_.currentName(), ctl, torqueTask);
 }
@@ -167,11 +249,16 @@ void RLPolicyRuntime::loadPolicy(const std::string & policyName,
 
   mc_rtc::log::info("[RLPolicyRuntime] Loading policy '{}'", policy.name);
 
+  // Only loaded while disarmed: the robot keeps holding its target
+  const bool keepTarget = policyLoaded();
+  const Eigen::VectorXd heldTarget = q_rl_;
+
   configureControl(policy, ctl, torqueTask);
 
   activeConvention_ = policy.convention;
 
   configureAction(policy, ctl);
+  if(keepTarget) q_rl_ = heldTarget;
   configureNetwork(policy);
   configureObservations(policy, ctl);
 
@@ -195,7 +282,7 @@ void RLPolicyRuntime::configureControl(const PolicyConfig & policy,
 {
   useQP_ = policy.useQP;
   policyStepSize_ = policy.policyStepSize;
-  pdGainsRatio_ = policy.pdGainsRatio;
+  pdGainsRatio_ = armed_ ? policy.pdGainsRatio : holdGainsRatio_;
   commandMin_ = policy.commandMin;
   commandMax_ = policy.commandMax;
 
@@ -414,7 +501,12 @@ Eigen::VectorXd RLPolicyRuntime::computeObservation(G1RLQPController & ctl)
 
 void RLPolicyRuntime::updateEffectiveCommand()
 {
-  effectiveCommand_ = command_.cwiseMax(commandMin_).cwiseMin(commandMax_);
+  // Zero while the catch policy holds control: the estimator's labels were produced that way, and the operator's
+  // command comes back by itself at the hand-back.
+  if(fallSwitchActive() && fallSwitch_.holdingRecovery())
+    effectiveCommand_.setZero();
+  else
+    effectiveCommand_ = command_.cwiseMax(commandMin_).cwiseMin(commandMax_);
 }
 
 void RLPolicyRuntime::validateObservationAgainstNetwork() const

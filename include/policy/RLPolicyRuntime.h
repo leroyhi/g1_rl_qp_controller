@@ -2,6 +2,7 @@
 
 #include "observation/Observation.h"
 #include "observation/ObservationManager.h"
+#include "policy/FallSwitch.h"
 #include "policy/PolicyConfig.h"
 #include "policy/RLPolicyInterface.h"
 
@@ -45,8 +46,24 @@ public:
                  G1RLQPController & ctl,
                  const std::shared_ptr<mc_tasks::TorqueJointTask> & torqueTask);
 
+  /** @brief Disarm and hold the current posture. A reset never resumes armed. */
   void reset(G1RLQPController & ctl);
   void runPolicyStepIfNeeded(G1RLQPController & ctl, double dt);
+
+  /** @brief Start the policy from a clean state: clock, last action and fall switch. */
+  void arm(G1RLQPController & ctl, const std::shared_ptr<mc_tasks::TorqueJointTask> & torqueTask);
+  /** @brief Stop the policy. The target stays at its last output, so this is a stop and not a jump. */
+  void hold(const std::shared_ptr<mc_tasks::TorqueJointTask> & torqueTask);
+  bool armed() const { return armed_; }
+
+  FallSwitch & fallSwitch() { return fallSwitch_; }
+  const FallSwitch & fallSwitch() const { return fallSwitch_; }
+  /** @brief The switch only applies to the walking policy it was trained with. */
+  bool fallSwitchActive() const;
+  /** @brief Largest command the policy can see, per axis (vx, vy, wz). */
+  const Eigen::Vector3d & commandMax() const { return commandMax_; }
+  /** @brief Name of the policy whose action is applied. */
+  const std::string & activePolicyName() const;
 
   void reloadCurrentPolicy(G1RLQPController & ctl,
                            const std::shared_ptr<mc_tasks::TorqueJointTask> & torqueTask);
@@ -125,6 +142,7 @@ private:
   void resetObservationHistory(G1RLQPController & ctl);
   Eigen::VectorXd computeObservation(G1RLQPController & ctl);
   void updateEffectiveCommand();
+  void holdCurrentPosture(G1RLQPController & ctl);
 
   void validateObservationAgainstNetwork() const;
   ObservationContext makeObservationContext(G1RLQPController & ctl);
@@ -142,6 +160,13 @@ private:
   ObservationConvention activeConvention_;
   /** Active ONNX policy instance. */
   std::unique_ptr<RLPolicyInterface> policy_;
+  /** Hands control over to the catch policy, which has its own ONNX session. */
+  FallSwitch fallSwitch_;
+
+  bool armed_ = false;
+  bool fallSwitchFailed_ = false;
+  /** Gain ratio while disarmed: the policy's gains are too low to keep the robot up without it. */
+  double holdGainsRatio_ = 1.0;
 
   std::string robotName_;
   std::string baseBody_ = "base_link";

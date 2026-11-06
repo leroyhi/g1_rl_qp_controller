@@ -1,0 +1,10 @@
+# Instantaneous pushes while walking, in the 0.3 to 1.0 m/s range of the bundle's measurements.
+duration: 42.0
+fall_height: 0.4
+fall_tilt_deg: 80.0
+events:
+  - {t: 2.0, command: [0.3, 0.0, 0.0]}
+  - {t: 8.0, velocity_push: [0.0, 0.5]}
+  - {t: 16.0, velocity_push: [0.6, 0.0]}
+  - {t: 24.0, velocity_push: [0.0, -0.7]}
+  - {t: 32.0, velocity_push: [-0.7, 0.0]}

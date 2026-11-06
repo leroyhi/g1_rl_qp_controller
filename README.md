@@ -33,7 +33,16 @@ Install `g1_description`, `mc_g1` and `g1_mj_description` (the MuJoCo model, der
 scripts/run_sim.sh
 ```
 
-Commands go through the mc_rtc GUI. The joystick plugin is off in `etc/mc_rtc_g1.yaml`: until its first event it reports the sticks at (0, 0), which the controller reads as a full-scale command for about 30 ms.
+The policy starts disarmed. With the gamepad, through `mc_joystick_plugin`:
+
+| Input | Effect |
+|---|---|
+| Left stick | `vx` and `vy` |
+| Right stick | `yaw_rate` |
+| Cross | Walking policy, arming it if needed |
+| Circle | Recovery policy, arming it if needed. It holds until Cross. |
+
+`HOLD (disarm)` stays in the GUI, under `G1RLQPController`. Without a gamepad, the same panel has `ARM policy`, and the commands are under `Command`. The fall switch can also take over by itself: untick `Fall switch > Automatic switch` to choose the policy by hand only.
 
 ### Scripted runs
 
@@ -41,11 +50,32 @@ Commands go through the mc_rtc GUI. The joystick plugin is off in `etc/mc_rtc_g1
 
 ```bash
 export AMENT_PREFIX_PATH=$HOME/workspace/install:$AMENT_PREFIX_PATH
-build/tests/sim/g1_sim_scenario etc/mc_rtc_g1.yaml tests/sim/scenarios/walk.yaml
+build/tests/sim/g1_sim_scenario tests/sim/mc_rtc_scenario.yaml tests/sim/scenarios/walk.yaml
 python3 scripts/analyze_sim_log.py /tmp/mc-control-G1RLQPController-latest.bin
 ```
 
 The exit status is 0 if the run reached its duration, 1 if the robot fell and 2 if the controller failed.
+
+### Fall switch
+
+`src/policy/FallSwitch.cpp` runs on the 20 ms policy tick, before the action is chosen. It computes the 37 features of `physics_features()` in mjlab's `scripts/fall_switch/common.py`, holds the estimator's 5-frame window, and applies the rule of `policies/fall_switch/README.md`: switch to `recovery_v0` when `p` exceeds its threshold, give control back after `release_dwell_steps` consecutive ticks inside the limit kernel. During a switch the policy sees a zero command and a stopped gait clock, and the `actions` term stays the raw action of whichever policy acted last.
+
+`release_dwell_steps` is set in `etc/G1RLQPController.in.yaml`: the bundle's README says 25, its `limit_kernel.json` says 10.
+
+The logs are under `G1RLQPController_FallSwitch_`: `p`, `inside`, `mahalanobis`, `mahalanobis2`, `dwell`, `activePolicy`, `holdingRecovery`, `operatorHold` and `features`.
+
+Three scripts check it:
+
+```bash
+# Features against mjlab's own function, on the states of a log
+~/mjlab/.venv/bin/python scripts/check_fall_switch_features.py /tmp/mc-control-G1RLQPController-latest.bin
+# Summary of a log
+python3 scripts/analyze_sim_log.py /tmp/mc-control-G1RLQPController-latest.bin
+# Falls, switches and false switches over many pushes, as in the bundle's README
+python3 scripts/run_fall_campaign.py --episodes 300 --jobs 16
+```
+
+`scripts/gen_training_mass_model.py` generates `policies/fall_switch/training_mass_model.json`, the masses of training that the features need.
 
 The rest of this README and `docs/` describe the template.
 

@@ -12,6 +12,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <filesystem>
 
 namespace
 {
@@ -84,6 +85,8 @@ bool G1RLQPController::run()
   controllerAvailable = datastore().has("Joystick::connected") && datastore().get<bool>("Joystick::connected");
   if(controllerAvailable && toggleJoystick)
     RLuseJoyStickInputs();
+  else if(toggleJoystick && joystickSeen_)
+    rlRuntime_.setCommand(Eigen::Vector3d::Zero()); // Lost in joystick mode: nothing else is driving the command
   else if(toggleKeyboard)
     RLuseKeyboardInputs();
 
@@ -105,58 +108,55 @@ void G1RLQPController::reset(const mc_control::ControllerResetData & reset_data)
 
 void G1RLQPController::RLuseJoyStickInputs()
 {
-  // Get joystick functions
-  auto & stickFunc = datastore().get<std::function<Eigen::Vector2d(joystickAnalogicInputs)>>("Joystick::Stick");
+  joystickSeen_ = true;
+  const Eigen::Vector2d leftStick = datastore().call<Eigen::Vector2d>("Joystick::Stick", joystickAnalogicInputs::L_STICK);
+  const Eigen::Vector2d rightStick =
+      datastore().call<Eigen::Vector2d>("Joystick::Stick", joystickAnalogicInputs::R_STICK);
 
-  // Read sticks values
-  leftStick = stickFunc(joystickAnalogicInputs::L_STICK);
-  // Apply dead zone
-  double vel_x = 0.0;
-  if(std::abs(leftStick(0) - 0.5) > joystickDeadZone)
+  if(--joystickCheckCountdown_ <= 0)
   {
-    vel_x = (leftStick(0) - 0.5) * 2.0 * maxVelCmd;
+    joystickCheckCountdown_ = joystickCheckPeriod_;
+    std::error_code error;
+    joystickDevicePresent_ = std::filesystem::exists("/dev/input/js0", error);
   }
-  double vel_y = 0.0;
-  if(std::abs(leftStick(1) - 0.5) > joystickDeadZone)
+  const Eigen::Vector4d sticks(leftStick(0), leftStick(1), rightStick(0), rightStick(1));
+  if(!joystickDevicePresent_ && !joystickLost_)
   {
-    vel_y = (leftStick(1) - 0.5) * 2.0 * maxVelCmd;
+    joystickLost_ = true;
+    joystickFrozen_ = sticks;
+    mc_rtc::log::error("[G1RLQPController] Joystick gone: command forced to zero until it is back, the JoystickPlugin "
+                       "Reset button pressed and a stick moved");
   }
-
-  rightStick = stickFunc(joystickAnalogicInputs::R_STICK);
-  double yaw_cmd = 0.0;
-  if(std::abs(rightStick(1) - 0.5) > joystickDeadZone)
+  if(joystickLost_)
   {
-    yaw_cmd = (rightStick(1) - 0.5) * 2.0 * maxYawCmd;
-  }
-
-  // Read D-pad buttons
-  DirectionButtons = {datastore().get<bool>("Joystick::UpPad"), datastore().get<bool>("Joystick::DownPad"),
-                      datastore().get<bool>("Joystick::LeftPad"), datastore().get<bool>("Joystick::RightPad")};
-
-  for(size_t i = 0; i < DirectionButtons.size(); ++i)
-  {
-    if(DirectionButtons[i])
+    if(!joystickDevicePresent_ || (sticks - joystickFrozen_).cwiseAbs().maxCoeff() <= 1e-6)
     {
-      switch(i)
-      {
-        case 0: // Up
-          vel_x += 1.0 * maxVelCmd;
-          break;
-        case 1: // Down
-          vel_x -= 1.0 * maxVelCmd;
-          break;
-        case 2: // Left
-          vel_y += 1.0 * maxVelCmd;
-          break;
-        case 3: // Right
-          vel_y -= 1.0 * maxVelCmd;
-          break;
-        default:
-          break;
-      }
+      rlRuntime_.setCommand(Eigen::Vector3d::Zero());
+      return;
     }
+    joystickLost_ = false;
+    mc_rtc::log::warning("[G1RLQPController] Joystick live again: command re-enabled");
   }
-  rlRuntime_.setCommand({vel_x, vel_y, yaw_cmd});
+
+  // On the rising edge: the plugin's ButtonEvent also fires on a release
+  const bool cross = datastore().call<bool>("Joystick::Button", joystickButtonInputs::A);
+  const bool circle = datastore().call<bool>("Joystick::Button", joystickButtonInputs::B);
+  if(cross && !crossPressed_) selectWalkingPolicy();
+  if(circle && !circlePressed_) selectRecoveryPolicy();
+  crossPressed_ = cross;
+  circlePressed_ = circle;
+
+  // Sticks: x is up and y is left, in [0, 1] with their rest position at 0.5
+  const double maxVelY = std::min(maxVelCmd, rlRuntime_.commandMax()(1));
+  Eigen::Vector3d target = Eigen::Vector3d::Zero();
+  if(std::abs(leftStick(0) - 0.5) > joystickDeadZone) target(0) = (leftStick(0) - 0.5) * 2.0 * maxVelCmd;
+  if(std::abs(leftStick(1) - 0.5) > joystickDeadZone) target(1) = (leftStick(1) - 0.5) * 2.0 * maxVelY;
+  if(std::abs(rightStick(1) - 0.5) > joystickDeadZone) target(2) = (rightStick(1) - 0.5) * 2.0 * maxYawCmd;
+
+  const double maxDelta = joystickRampRate * timeStep;
+  Eigen::Vector3d command = rlRuntime_.command();
+  for(int i = 0; i < 3; ++i) command(i) += std::clamp(target(i) - command(i), -maxDelta, maxDelta);
+  rlRuntime_.setCommand(command);
 }
 
 void G1RLQPController::RLuseKeyboardInputs()
@@ -209,6 +209,40 @@ void G1RLQPController::RLuseKeyboardInputs()
                          (active(2) ? maxVelCmd : 0.0) - (active(3) ? maxVelCmd : 0.0), rlRuntime_.command()(2)});
 }
 
+void G1RLQPController::armPolicy()
+{
+  rlRuntime_.arm(*this, torqueJointTask);
+}
+
+void G1RLQPController::holdPolicy()
+{
+  rlRuntime_.hold(torqueJointTask);
+}
+
+void G1RLQPController::selectWalkingPolicy()
+{
+  if(!rlRuntime_.fallSwitchActive())
+  {
+    mc_rtc::log::error("[G1RLQPController] The current policy is not the walking policy of the fall switch");
+    return;
+  }
+  armPolicy();
+  rlRuntime_.fallSwitch().forceWalking();
+  mc_rtc::log::info("[G1RLQPController] Operator: {} takes control", rlRuntime_.fallSwitch().walkingPolicy());
+}
+
+void G1RLQPController::selectRecoveryPolicy()
+{
+  if(!rlRuntime_.fallSwitchActive())
+  {
+    mc_rtc::log::error("[G1RLQPController] The current policy is not the walking policy of the fall switch");
+    return;
+  }
+  armPolicy();
+  rlRuntime_.fallSwitch().forceRecovery();
+  mc_rtc::log::info("[G1RLQPController] Operator: {} takes control", rlRuntime_.fallSwitch().recoveryPolicy());
+}
+
 void G1RLQPController::activateQPControl(bool activate)
 {
   rlRuntime_.setUseQP(activate);
@@ -227,6 +261,9 @@ void G1RLQPController::applyConservativeLimits()
   const std::string band = limits("position", std::string("soft"));
   if(band != "soft" && band != "hard")
     mc_rtc::log::error_and_throw("[G1RLQPController] limits.position must be 'soft' or 'hard', got '{}'", band);
+  const std::string rule = limits("rule", std::string("conservative"));
+  if(rule != "conservative" && rule != "plant")
+    mc_rtc::log::error_and_throw("[G1RLQPController] limits.rule must be 'conservative' or 'plant', got '{}'", rule);
 
   mc_rtc::Configuration plant;
   plant.load(plantPath);
@@ -235,8 +272,8 @@ void G1RLQPController::applyConservativeLimits()
     mc_rtc::log::error_and_throw("[G1RLQPController] {} has {} joints, the robot has {} actuated joints", plantPath,
                                  joints.size(), robot().refJointOrder().size());
 
-  mc_rtc::log::info("[G1RLQPController] Joint limits, the more conservative of the URDF and {} ({} position band):",
-                    plantPath, band);
+  mc_rtc::log::info("[G1RLQPController] Joint limits, {} of the URDF and {} ({} position band):",
+                    rule == "plant" ? "torque and velocity" : "the more conservative", plantPath, band);
   for(size_t i = 0; i < joints.size(); ++i)
   {
     const mc_rtc::Configuration joint = joints[i];
@@ -253,10 +290,10 @@ void G1RLQPController::applyConservativeLimits()
     const double urdfVelocity = robot().vu()[j][0];
     for(mc_rbdyn::Robot * r : {&robot(), &realRobot()})
     {
-      r->tl()[j][0] = std::max(r->tl()[j][0], -torque);
-      r->tu()[j][0] = std::min(r->tu()[j][0], torque);
-      r->vl()[j][0] = std::max(r->vl()[j][0], -velocity);
-      r->vu()[j][0] = std::min(r->vu()[j][0], velocity);
+      r->tl()[j][0] = rule == "plant" ? -torque : std::max(r->tl()[j][0], -torque);
+      r->tu()[j][0] = rule == "plant" ? torque : std::min(r->tu()[j][0], torque);
+      r->vl()[j][0] = rule == "plant" ? -velocity : std::max(r->vl()[j][0], -velocity);
+      r->vu()[j][0] = rule == "plant" ? velocity : std::min(r->vu()[j][0], velocity);
       r->ql()[j][0] = std::max(r->ql()[j][0], position[0]);
       r->qu()[j][0] = std::min(r->qu()[j][0], position[1]);
     }
@@ -361,6 +398,27 @@ void G1RLQPController::addLog()
 
   // Controller state variables
   logger().addLogEntry("G1RLQPController_useQP", [this]() { return rlRuntime_.useQP(); });
+  logger().addLogEntry("G1RLQPController_policyArmed", [this]() { return rlRuntime_.armed(); });
+
+  // Fall switch: updated on each policy tick
+  if(rlRuntime_.fallSwitch().configured())
+  {
+    const rlqp::FallSwitch & fallSwitch = rlRuntime_.fallSwitch();
+    logger().addLogEntry("G1RLQPController_FallSwitch_p", [&fallSwitch]() { return fallSwitch.p(); });
+    logger().addLogEntry("G1RLQPController_FallSwitch_inside", [&fallSwitch]() { return fallSwitch.inside(); });
+    logger().addLogEntry("G1RLQPController_FallSwitch_mahalanobis", [&fallSwitch]() { return fallSwitch.mahalanobis(); });
+    logger().addLogEntry("G1RLQPController_FallSwitch_mahalanobis2",
+                         [&fallSwitch]() { return fallSwitch.mahalanobis2(); });
+    logger().addLogEntry("G1RLQPController_FallSwitch_dwell", [&fallSwitch]() { return fallSwitch.dwell(); });
+    logger().addLogEntry("G1RLQPController_FallSwitch_holdingRecovery",
+                         [&fallSwitch]() { return fallSwitch.holdingRecovery(); });
+    logger().addLogEntry("G1RLQPController_FallSwitch_operatorHold",
+                         [&fallSwitch]() { return fallSwitch.operatorHold(); });
+    logger().addLogEntry("G1RLQPController_FallSwitch_activePolicy",
+                         [this]() { return rlRuntime_.activePolicyName(); });
+    logger().addLogEntry("G1RLQPController_FallSwitch_features",
+                         [&fallSwitch]() -> const Eigen::VectorXd & { return fallSwitch.features(); });
+  }
 
   // Log current policy (name and convention)
   logger().addLogEntry("G1RLQPController_currentPolicy", [this]() { return rlRuntime_.currentPolicyName(); });
@@ -373,6 +431,36 @@ void G1RLQPController::addLog()
 
 void G1RLQPController::addGui()
 {
+  // At the top level: the first thing an operator sees
+  gui()->addElement(
+    {"G1RLQPController"},
+    mc_rtc::gui::Label("Policy state", [this]() { return rlRuntime_.armed() ? "ARMED" : "held (disarmed)"; }),
+    mc_rtc::gui::Button("ARM policy", [this]() { armPolicy(); }),
+    mc_rtc::gui::Button("HOLD (disarm)", [this]() { holdPolicy(); }));
+
+  if(rlRuntime_.fallSwitch().configured())
+  {
+    rlqp::FallSwitch & fallSwitch = rlRuntime_.fallSwitch();
+    gui()->addElement(
+      {"G1RLQPController", "Fall switch"},
+      mc_rtc::gui::Checkbox(
+        "Automatic switch", [&fallSwitch]() { return fallSwitch.enabled(); },
+        [&fallSwitch]() { fallSwitch.setEnabled(!fallSwitch.enabled()); }),
+      mc_rtc::gui::Button("Walking policy (cross)", [this]() { selectWalkingPolicy(); }),
+      mc_rtc::gui::Button("Recovery policy (circle)", [this]() { selectRecoveryPolicy(); }),
+      mc_rtc::gui::Label("Held by the operator", [&fallSwitch]() { return fallSwitch.operatorHold() ? "Yes" : "No"; }),
+      mc_rtc::gui::Label("Active policy", [this]() { return rlRuntime_.activePolicyName(); }),
+      mc_rtc::gui::Label("p", [&fallSwitch]() { return fallSwitch.p(); }),
+      mc_rtc::gui::Label("p threshold", [&fallSwitch]() { return fallSwitch.threshold(); }),
+      mc_rtc::gui::Label("Inside the limit kernel", [&fallSwitch]() { return fallSwitch.inside() ? "Yes" : "No"; }),
+      mc_rtc::gui::Label("Mahalanobis squared", [&fallSwitch]() { return fallSwitch.mahalanobis2(); }),
+      mc_rtc::gui::Label("Mahalanobis squared threshold", [&fallSwitch]() { return fallSwitch.kernelThreshold(); }),
+      mc_rtc::gui::Label("Dwell", [&fallSwitch]() { return fallSwitch.dwell(); }),
+      mc_rtc::gui::Label("Dwell required", [&fallSwitch]() { return fallSwitch.releaseDwellSteps(); }),
+      mc_rtc::gui::Label("Switches since arming", [&fallSwitch]() { return fallSwitch.switchCount(); }),
+      mc_rtc::gui::Label("Hand-backs since arming", [&fallSwitch]() { return fallSwitch.handBackCount(); }));
+  }
+
   gui()->addElement(
     {"G1RLQPController", "Policy"},
     mc_rtc::gui::Label("Current policy", [this]() { return rlRuntime_.currentPolicyName(); }),
