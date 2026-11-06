@@ -39,8 +39,6 @@ VARIANTS = {
     "switch_dwell25": ("fall_switch: {release_dwell_steps: 25}\n", True),
     "switch_dwell10": ("fall_switch: {release_dwell_steps: 10}\n", True),
     "switch_lambda200": ("cbf: {joint_limit: {lambda: 200.0}}\n", True),
-    "switch_plant_limits": ("limits: {rule: plant}\n", True),
-    "weak_plant_limits": ("limits: {rule: plant}\nfall_switch: {enabled: false}\n", True),
     "switch_no_qp": ("", False),
 }
 

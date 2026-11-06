@@ -16,7 +16,7 @@ mc_rtc controller for the Unitree G1 29 DoF, forked from the RL-QP controller te
 
 - **Robot module:** `G1_29dof` from `mc_g1`. `MainRobot: G1` loads the 23 DoF variant.
 - **Gains:** nominal `kp` and `kd` from `plant.json`, without the training randomisation.
-- **Limits:** each joint uses the more conservative of its URDF limits and `plant.json`, with the `pos_limit_soft` position band. See `limits` in `etc/G1RLQPController.in.yaml`.
+- **Limits:** torque and velocity come from `plant.json`, the actuators' own limits, which the URDF underestimates on 8 joints. The position band is `pos_limit_soft`. The controller logs what the QP holds at startup. See `limits` in `etc/G1RLQPController.in.yaml`.
 - **Run configuration:** `etc/mc_rtc_g1.yaml`, which leaves the mc_rtc user configuration untouched.
 
 - **QP model:** the controller adds the armature to the robot module's mass matrix, and uses `lambda = 1/dt` for the joint-limit CBF. See the comments in `etc/G1RLQPController.in.yaml`.

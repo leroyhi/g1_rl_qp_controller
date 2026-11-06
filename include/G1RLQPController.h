@@ -134,11 +134,11 @@ private:
   /** @brief Load robot parameters from config. */
   void initializeRobotBasics();
   /**
-   * @brief Restrict each joint to the more conservative of its URDF limits and the limits of plant.json.
+   * @brief Take the torque and velocity limits of plant.json, the actuators' own, in place of the URDF's.
    *
    * Applies to robot(), realRobot() and the TVM robot, so it must run before the dynamics constraint joins the solver.
    */
-  void applyConservativeLimits();
+  void applyActuatorLimits();
   /** @brief Read the optional 'cbf' and 'print_limits' entries of the controller configuration. */
   void loadCBFParameters();
 

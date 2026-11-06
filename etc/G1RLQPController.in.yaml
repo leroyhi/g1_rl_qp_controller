@@ -20,7 +20,8 @@ robot:
 
 # Joint limits enforced by the QP and by the bypass torque clip.
 limits:
-  # Each joint uses the more conservative of its URDF limits and this file.
+  # Torque and velocity limits of the actuators, as in mjlab's g1_constants.py. The URDF is lower on 8 joints: 88 Nm
+  # and not 139 on hip roll, 35 Nm and not 50 on the ankles and on waist roll and pitch.
   plant: "@CMAKE_CURRENT_SOURCE_DIR@/policies/fall_switch/plant.json"
   # plant.json position band compared with the URDF: soft (0.9 shrink, as advised by the bundle README) or hard.
   position: soft
@@ -29,8 +30,8 @@ limits:
   armature_natural_frequency_hz: 10.0
 
 # CBF-QP parameters. The QP has no contact in its model, so it sees a stance foot as free: its acceleration bounds
-# become torque bounds of (lambda^2 / 4 zeta^2) * margin * inertia. lambda = 1 / dt keeps them above the 35 Nm of the
-# ankles down to about 0.1 rad from a limit. At the template's 200 the QP is active on 1.3% of the walking ticks,
+# become torque bounds of (lambda^2 / 4 zeta^2) * margin * inertia. lambda = 1 / dt keeps them above the 50 Nm of the
+# ankles down to about 0.15 rad from a limit. At the template's 200 the QP is active on 1.3% of the walking ticks,
 # against 0.01% here. The other values are the template defaults, not tuned for the G1 yet.
 cbf:
   velocity_percent: 0.9

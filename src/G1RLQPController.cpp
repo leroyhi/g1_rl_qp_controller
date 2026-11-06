@@ -54,7 +54,7 @@ G1RLQPController::G1RLQPController(mc_rbdyn::RobotModulePtr rm,
 {
   config_ = config;
 
-  applyConservativeLimits();
+  applyActuatorLimits();
   loadCBFParameters();
 
   // Joint-limit and self-collision protection. The dynamics constraint reads the limits when it joins the solver.
@@ -252,7 +252,7 @@ rlqp::RLPolicyRuntime & G1RLQPController::rlRuntime() { return rlRuntime_; }
 
 const rlqp::RLPolicyRuntime & G1RLQPController::rlRuntime() const { return rlRuntime_; }
 
-void G1RLQPController::applyConservativeLimits()
+void G1RLQPController::applyActuatorLimits()
 {
   if(!config_.has("limits"))
     mc_rtc::log::error_and_throw("[G1RLQPController] Missing 'limits' section: the robot would run with its URDF limits");
@@ -261,9 +261,6 @@ void G1RLQPController::applyConservativeLimits()
   const std::string band = limits("position", std::string("soft"));
   if(band != "soft" && band != "hard")
     mc_rtc::log::error_and_throw("[G1RLQPController] limits.position must be 'soft' or 'hard', got '{}'", band);
-  const std::string rule = limits("rule", std::string("conservative"));
-  if(rule != "conservative" && rule != "plant")
-    mc_rtc::log::error_and_throw("[G1RLQPController] limits.rule must be 'conservative' or 'plant', got '{}'", rule);
 
   mc_rtc::Configuration plant;
   plant.load(plantPath);
@@ -272,8 +269,8 @@ void G1RLQPController::applyConservativeLimits()
     mc_rtc::log::error_and_throw("[G1RLQPController] {} has {} joints, the robot has {} actuated joints", plantPath,
                                  joints.size(), robot().refJointOrder().size());
 
-  mc_rtc::log::info("[G1RLQPController] Joint limits, {} of the URDF and {} ({} position band):",
-                    rule == "plant" ? "torque and velocity" : "the more conservative", plantPath, band);
+  std::vector<std::string> names;
+  std::vector<std::string> urdfNotes;
   for(size_t i = 0; i < joints.size(); ++i)
   {
     const mc_rtc::Configuration joint = joints[i];
@@ -290,19 +287,20 @@ void G1RLQPController::applyConservativeLimits()
     const double urdfVelocity = robot().vu()[j][0];
     for(mc_rbdyn::Robot * r : {&robot(), &realRobot()})
     {
-      r->tl()[j][0] = rule == "plant" ? -torque : std::max(r->tl()[j][0], -torque);
-      r->tu()[j][0] = rule == "plant" ? torque : std::min(r->tu()[j][0], torque);
-      r->vl()[j][0] = rule == "plant" ? -velocity : std::max(r->vl()[j][0], -velocity);
-      r->vu()[j][0] = rule == "plant" ? velocity : std::min(r->vu()[j][0], velocity);
+      r->tl()[j][0] = -torque;
+      r->tu()[j][0] = torque;
+      r->vl()[j][0] = -velocity;
+      r->vu()[j][0] = velocity;
       r->ql()[j][0] = std::max(r->ql()[j][0], position[0]);
       r->qu()[j][0] = std::min(r->qu()[j][0], position[1]);
     }
-    if(urdfTorque != torque || urdfVelocity != velocity)
-      mc_rtc::log::info("  {}: torque {} Nm (URDF {}, plant {}), velocity {} rad/s (URDF {}, plant {})", name,
-                        robot().tu()[j][0], urdfTorque, torque, robot().vu()[j][0], urdfVelocity, velocity);
+    names.push_back(name);
+    urdfNotes.push_back(urdfTorque != torque || urdfVelocity != velocity
+                            ? fmt::format(" (URDF: {} Nm, {} rad/s)", urdfTorque, urdfVelocity)
+                            : std::string());
   }
 
-  // The TVM robot caches its limits when it is created
+  // The TVM robot caches its limits when it is created, and these are the ones the QP reads
   const auto & mb = robot().mb();
   auto & tvmLimits = robot().tvmRobot().limits();
   tvmLimits.ql = rbd::paramToVector(mb, robot().ql());
@@ -311,6 +309,17 @@ void G1RLQPController::applyConservativeLimits()
   tvmLimits.vu = rbd::dofToVector(mb, robot().vu());
   tvmLimits.tl = rbd::dofToVector(mb, robot().tl());
   tvmLimits.tu = rbd::dofToVector(mb, robot().tu());
+
+  mc_rtc::log::info("[G1RLQPController] QP joint limits, from {} with its {} position band:", plantPath, band);
+  for(size_t i = 0; i < names.size(); ++i)
+  {
+    const int j = mb.jointIndexByName(names[i]);
+    const int dof = mb.jointPosInDof(j);
+    const int param = mb.jointPosInParam(j);
+    mc_rtc::log::info("  {}: torque [{}, {}] Nm, velocity [{}, {}] rad/s, position [{:.3f}, {:.3f}] rad{}", names[i],
+                      tvmLimits.tl(dof), tvmLimits.tu(dof), tvmLimits.vl(dof), tvmLimits.vu(dof), tvmLimits.ql(param),
+                      tvmLimits.qu(param), urdfNotes[i]);
+  }
 }
 
 void G1RLQPController::loadCBFParameters()
