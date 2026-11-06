@@ -8,4 +8,5 @@ root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 export AMENT_PREFIX_PATH="${G1_INSTALL_PREFIX:-$HOME/workspace/install}:${AMENT_PREFIX_PATH:-}"
 
 # --torque-control is required: without it mc_mujoco ignores the torques and applies its own PD.
-exec mc_mujoco -f "$root/etc/mc_rtc_g1.yaml" --torque-control "$@"
+# --sync keeps the simulation at real time: without it, it runs as fast as it can, about 6.6 times faster here.
+exec mc_mujoco -f "$root/etc/mc_rtc_g1.yaml" --torque-control --sync "$@"
