@@ -4,6 +4,7 @@
 #include <mc_rtc/logging.h>
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <dirent.h>
 #include <fstream>
@@ -332,6 +333,21 @@ PolicyConfig PolicyConfig::load(const std::string & policyFolder,
     {
       VelocityCommand vel_cmd{control("vel_cmd_speed")("xy", 0.4), control("vel_cmd_speed")("yaw", 0.4)};
       out.velCmd = vel_cmd;
+    }
+
+    if(control.has("command_ranges"))
+    {
+      const mc_rtc::Configuration ranges = control("command_ranges");
+      const std::array<const char *, 3> axes = {"lin_vel_x", "lin_vel_y", "ang_vel_z"};
+      for(int axis = 0; axis < 3; ++axis)
+      {
+        const std::vector<double> range = ranges(axes[static_cast<size_t>(axis)]);
+        if(range.size() != 2 || range[0] > range[1])
+          mc_rtc::log::error_and_throw("[PolicyConfig:{}] control.command_ranges.{} must be [min, max]", out.name,
+                                       axes[static_cast<size_t>(axis)]);
+        out.commandMin(axis) = range[0];
+        out.commandMax(axis) = range[1];
+      }
     }
 
     kp_map = readJointMap(control, "kp", mcRtcJoints, out.name);

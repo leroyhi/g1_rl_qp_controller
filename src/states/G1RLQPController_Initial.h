@@ -8,7 +8,7 @@
  * The historical name "Initial" is preserved so this template applies cleanly
  * to the original single-state controller. Rename it later if desired.
  */
-struct NewRLQPController_Initial : mc_control::fsm::State
+struct G1RLQPController_Initial : mc_control::fsm::State
 {
   void configure(const mc_rtc::Configuration & config) override;
   void start(mc_control::fsm::Controller & ctl) override;

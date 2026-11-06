@@ -2,8 +2,11 @@
 
 #include "observation/Observation.h"
 
+#include <Eigen/Core>
+
 #include <mc_rtc/Configuration.h>
 
+#include <limits>
 #include <map>
 #include <string>
 #include <vector>
@@ -52,6 +55,10 @@ struct PolicyConfig
   std::string policyYamlPath;
   std::string observationsYamlPath;
   VelocityCommand velCmd;
+
+  /** @brief Per-axis range of the command seen by the policy (vx, vy, wz), from control.command_ranges. Unbounded by default. */
+  Eigen::Vector3d commandMin = Eigen::Vector3d::Constant(-std::numeric_limits<double>::infinity());
+  Eigen::Vector3d commandMax = Eigen::Vector3d::Constant(std::numeric_limits<double>::infinity());
 
   bool useQP = true;
   /** Policy inference period in seconds. Configured through control.period_s or control.frequency_hz. */

@@ -1,8 +1,8 @@
 {
-  "name": "mc-rtc-new-fsm-controller",
+  "name": "g1-rl-qp-controller",
   "version-string": "1.0.0",
   "homepage": "",
-  "description": "NewRLQPController for mc_rtc",
+  "description": "G1RLQPController for mc_rtc",
   "dependencies": [
     "mc-rtc"
   ]

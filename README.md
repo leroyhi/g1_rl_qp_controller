@@ -6,9 +6,30 @@
 
 ---
 
-# mc_rtc RL-QP controller template
+# G1 RL-QP controller
 
-This project is a template for a new RL-QP controller project wihtin [mc_rtc].
+mc_rtc controller for the Unitree G1 29 DoF, forked from the RL-QP controller template. It deploys the fall-recovery bundle in `policies/fall_switch/`: a walking policy (`weak`), a catch policy (`recovery_v0`), and an estimator and limit kernel that decide when to switch between them.
+
+## G1 setup
+
+`plant.json` and `observation.json` in `policies/fall_switch/` are the source of truth. `scripts/gen_policy_from_plant.py` generates `policies/conventions.yaml` and each policy's `policy.yaml` and `observations.yaml` from them, so edit the generator rather than the generated files.
+
+- **Robot module:** `G1_29dof` from `mc_g1`. `MainRobot: G1` loads the 23 DoF variant.
+- **Gains:** nominal `kp` and `kd` from `plant.json`, without the training randomisation.
+- **Limits:** each joint uses the more conservative of its URDF limits and `plant.json`, with the `pos_limit_soft` position band. See `limits` in `etc/G1RLQPController.in.yaml`.
+- **Run configuration:** `etc/mc_rtc_g1.yaml`, which leaves the mc_rtc user configuration untouched.
+
+`g1_description` must be on `AMENT_PREFIX_PATH`, otherwise mc_rtc cannot resolve the `package://` URIs of the URDF:
+
+```bash
+export AMENT_PREFIX_PATH=$HOME/workspace/install:$AMENT_PREFIX_PATH
+```
+
+The rest of this README and `docs/` describe the template.
+
+## Template
+
+This project is based on a template for a new RL-QP controller project within [mc_rtc].
 
 The goal of this template is to help users deploy reinforcement learning (RL) policies within a Quadratic Programming (QP) framework augmented with Control Barrier Functions (CBFs). This combination is enforcing physical and safety constraints, including:
 
@@ -52,33 +73,25 @@ make build      # build the static website
 
 ## Template layout
 
-- `policies/minimalExample/`: smallest explicitly configured policy accepted by the current parser.
-- `policies/fullExample/`: exhaustive reference for every currently accepted policy and observation fields.
-- `policies/conventions.yaml`: placeholder joint groups, training orders, aliases and observation defaults.
-- `etc/NewRLQPController.in.yaml`: controller, observer and constraint examples.
-- `src/states/NewRLQPController_Initial.cpp`: policy-execution state.
+- `policies/weak/`, `policies/recovery_v0/`: the two policies of the bundle.
+- `policies/fall_switch/`: estimator, limit kernel and the bundle's JSON sidecars.
+- `policies/conventions.yaml`: joint order of the bundle.
+- `etc/G1RLQPController.in.yaml`: controller, observer and constraint configuration.
+- `src/states/G1RLQPController_Initial.cpp`: policy-execution state.
 - `src/observation/`: reusable observation implementations.
 - `src/policy/`: policy loading, validation, ONNX inference and runtime state.
-
-## Required robot adaptation
-
-The source marks adaptation points with `TODO(robot)`. Search them before attempting to run the controller:
-
-```bash
-grep -rn "TODO(robot)"
-```
 
 ## Deploy your own policy
 
 Policies are stored in `policies`. Each subdirectory describes everything the controller needs to know to load. run and use the policy.
-You here have access to 2 example directories. `minimalExample` with a basic, minimal configuration, and `fullExample` to have a better idea of the full potential of the default version of this controller.
+See `docs/content/reference/policy-options.md` for every accepted field.
 
 1. Create a new subdirectory in `policies`
 1. Add the exported model in ONNX format inside
 2. set the action and controlled-joint groups, provide training-consistent `kp` and `kd`, and add any required action scaling, default pose, phase period or command parameters in `policy.yaml`
 5. reproduce the exact observation order and history in `observations.yaml`.
 
-Set `default_policy` in `etc/NewRLQPController.in.yaml`.
+Set `default_policy` in `etc/G1RLQPController.in.yaml`.
 
 ## Build
 

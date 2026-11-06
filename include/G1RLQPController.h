@@ -45,7 +45,7 @@
  * ## Configuration
  *
  * All parameters are loaded from YAML config files :
- * etc/NewRLQPController.in.yaml :
+ * etc/G1RLQPController.in.yaml :
  *  - policies root directory     Path where policy directories will be search for
  *  - default policy              Name of the first policy to run
  * {policy_root}/{policy_name} :
@@ -73,9 +73,9 @@
  * @see RLPolicyInterface.h for ONNX inference wrapper.
  */
 
-struct NewRLQPController_DLLAPI NewRLQPController : public mc_control::fsm::Controller
+struct G1RLQPController_DLLAPI G1RLQPController : public mc_control::fsm::Controller
 {
-  NewRLQPController(mc_rbdyn::RobotModulePtr rm, double dt, const mc_rtc::Configuration & config);
+  G1RLQPController(mc_rbdyn::RobotModulePtr rm, double dt, const mc_rtc::Configuration & config);
 
   bool run() override;
   void reset(const mc_control::ControllerResetData & reset_data) override;
@@ -123,11 +123,19 @@ private:
   void addGui();
   /** @brief Load robot parameters from config. */
   void initializeRobotBasics();
+  /**
+   * @brief Restrict each joint to the more conservative of its URDF limits and the limits of plant.json.
+   *
+   * Applies to robot(), realRobot() and the TVM robot, so it must run before the dynamics constraint joins the solver.
+   */
+  void applyConservativeLimits();
+  /** @brief Read the optional 'cbf' and 'print_limits' entries of the controller configuration. */
+  void loadCBFParameters();
 
   /**
    * @brief Apply RL torques directly, bypassing the QP (useQP=false mode).
    *
-   * Computes τ = Kp*(q_rl - q) - Kd*q̇ and writes it to robot().mbc().jointTorque.
+   * Computes τ = clip(Kp*(q_rl - q) - Kd*q̇, τ limits) and writes it to robot().mbc().jointTorque.
    * @return true if bypass was applied, false if QP should run instead.
    */
   bool byPassQPControl();
@@ -148,8 +156,8 @@ private:
   double diPercent_ = 0.1; // Doesn't matter since di > ds. This variable is not used in the constraint dynamics.
 
   // --- CBF Gains ---
-  // More details are explained in the paper cf. Readme.md. 
-  // TODO(robot) : These vealues must be tuned depending on the robot.
+  // More details are explained in the paper cf. Readme.md.
+  // Template defaults, overridable through the 'cbf' entry of the controller configuration.
   double zeta_jointLimit_ = 1.2;
   double lambda_jointLimit_ = 200.0; // Same gain for joint position limits and velocity limits.
   double zeta_selfCollision_ = 1.2;
