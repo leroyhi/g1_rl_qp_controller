@@ -501,9 +501,9 @@ Eigen::VectorXd RLPolicyRuntime::computeObservation(G1RLQPController & ctl)
 
 void RLPolicyRuntime::updateEffectiveCommand()
 {
-  // Zero while the catch policy holds control: the estimator's labels were produced that way, and the operator's
-  // command comes back by itself at the hand-back.
-  if(fallSwitchActive() && fallSwitch_.holdingRecovery())
+  // Zero while the catch policy holds control after an automatic switch: the estimator's labels were produced that way,
+  // and the operator's command comes back by itself at the hand-back. An operator who chose the catch policy drives it.
+  if(fallSwitchActive() && fallSwitch_.holdingRecovery() && !fallSwitch_.operatorHold())
     effectiveCommand_.setZero();
   else
     effectiveCommand_ = command_.cwiseMax(commandMin_).cwiseMin(commandMax_);

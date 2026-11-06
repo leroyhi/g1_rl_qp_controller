@@ -188,11 +188,12 @@ def main():
         replay.append(now)
     print(f"state machine replayed at dwell {required}: {(np.array(replay) != holding).sum()} ticks differ out of {n}")
 
-    # The observation seen by the catch policy
+    # The observation seen by the catch policy after an automatic switch. The operator's choice keeps the sticks.
     observation = columns("G1RLQPController_RL_currentObservation", 98)[ticks]
     action_before = columns("G1RLQPController_RL_currentAction", 29)[ticks - 1]
-    print(f"while recovery holds: largest |command| {np.abs(observation[holding, 6:9]).max() if holding.any() else 0:.3f},"
-          f" largest |phase| {np.abs(observation[holding, 9:11]).max() if holding.any() else 0:.3f}")
+    automatic = holding & (column("G1RLQPController_FallSwitch_operatorHold")[ticks] < 0.5)
+    print(f"while recovery holds after an automatic switch: largest |command| {np.abs(observation[automatic, 6:9]).max() if automatic.any() else 0:.3f},"
+          f" largest |phase| {np.abs(observation[automatic, 9:11]).max() if automatic.any() else 0:.3f}")
     print(f"actions term against the raw action of the previous tick: {np.abs(observation[1:, 69:98] - action_before[1:]).max():.2e}")
     del dwell_required
 

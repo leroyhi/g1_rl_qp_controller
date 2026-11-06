@@ -56,7 +56,11 @@ public:
   bool enabled() const { return configured_ && enabled_; }
   void setEnabled(bool enabled);
 
-  /** @brief Operator's choice: the catch policy holds control, with no automatic hand-back, until forceWalking(). */
+  /**
+   * @brief Operator's choice: the catch policy holds control, with no automatic hand-back, until forceWalking().
+   *
+   * Unlike after an automatic switch, the operator's command still reaches the policy.
+   */
   void forceRecovery();
   /** @brief Operator's choice: back to the walking policy, whose automatic supervision resumes. */
   void forceWalking();
