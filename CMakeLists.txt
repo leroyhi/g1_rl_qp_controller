@@ -24,6 +24,11 @@ add_subdirectory(src)
 #   add_subdirectory(tests)
 # endif()
 
+option(BUILD_SIM_SCENARIO "Build the headless mc_mujoco scenario runner" OFF)
+if(BUILD_SIM_SCENARIO)
+  add_subdirectory(tests/sim)
+endif()
+
 configure_file(etc/G1RLQPController.in.yaml
                "${CMAKE_CURRENT_BINARY_DIR}/etc/G1RLQPController.yaml")
 install(FILES "${CMAKE_CURRENT_BINARY_DIR}/etc/G1RLQPController.yaml"

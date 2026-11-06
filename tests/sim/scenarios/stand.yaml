@@ -1,0 +1,3 @@
+# Zero command: the robot must stand still.
+duration: 60.0
+fall_height: 0.4

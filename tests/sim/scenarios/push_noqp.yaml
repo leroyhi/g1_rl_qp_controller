@@ -1,0 +1,12 @@
+# Same as push.yaml with the QP bypassed.
+duration: 40.0
+fall_height: 0.4
+events:
+  - {t: 0.0, use_qp: false}
+  - {t: 2.0, command: [0.3, 0.0, 0.0]}
+  - {t: 6.0, push: {body: torso_link, force: [0.0, 150.0, 0.0], duration: 0.1}}
+  - {t: 12.0, push: {body: torso_link, force: [150.0, 0.0, 0.0], duration: 0.1}}
+  - {t: 18.0, push: {body: torso_link, force: [0.0, -250.0, 0.0], duration: 0.1}}
+  - {t: 24.0, push: {body: torso_link, force: [-250.0, 0.0, 0.0], duration: 0.1}}
+  - {t: 30.0, push: {body: torso_link, force: [0.0, 400.0, 0.0], duration: 0.1}}
+  - {t: 35.0, push: {body: torso_link, force: [400.0, 0.0, 0.0], duration: 0.1}}

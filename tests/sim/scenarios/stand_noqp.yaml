@@ -1,0 +1,5 @@
+# Zero command, QP bypassed: separates the policy and the model from the QP.
+duration: 60.0
+fall_height: 0.4
+events:
+  - {t: 0.0, use_qp: false}

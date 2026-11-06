@@ -19,11 +19,33 @@ mc_rtc controller for the Unitree G1 29 DoF, forked from the RL-QP controller te
 - **Limits:** each joint uses the more conservative of its URDF limits and `plant.json`, with the `pos_limit_soft` position band. See `limits` in `etc/G1RLQPController.in.yaml`.
 - **Run configuration:** `etc/mc_rtc_g1.yaml`, which leaves the mc_rtc user configuration untouched.
 
-`g1_description` must be on `AMENT_PREFIX_PATH`, otherwise mc_rtc cannot resolve the `package://` URIs of the URDF:
+- **QP model:** the controller adds the armature to the robot module's mass matrix, and uses `lambda = 1/dt` for the joint-limit CBF. See the comments in `etc/G1RLQPController.in.yaml`.
+
+### Dependencies
+
+Install `g1_description`, `mc_g1` and `g1_mj_description` (the MuJoCo model, derived from mjlab's training model) in the same prefix as mc_rtc.
+
+`g1_description` must be on `AMENT_PREFIX_PATH`, otherwise mc_rtc cannot resolve the `package://` URIs of the URDF. `scripts/run_sim.sh` does this for a prefix in `~/workspace/install`, or in `G1_INSTALL_PREFIX` if set.
+
+### Run in simulation
+
+```bash
+scripts/run_sim.sh
+```
+
+Commands go through the mc_rtc GUI. The joystick plugin is off in `etc/mc_rtc_g1.yaml`: until its first event it reports the sticks at (0, 0), which the controller reads as a full-scale command for about 30 ms.
+
+### Scripted runs
+
+`tests/sim/g1_sim_scenario` runs mc_mujoco without a window and triggers commands and pushes on the simulation clock. Build it with `-DBUILD_SIM_SCENARIO=ON`, then:
 
 ```bash
 export AMENT_PREFIX_PATH=$HOME/workspace/install:$AMENT_PREFIX_PATH
+build/tests/sim/g1_sim_scenario etc/mc_rtc_g1.yaml tests/sim/scenarios/walk.yaml
+python3 scripts/analyze_sim_log.py /tmp/mc-control-G1RLQPController-latest.bin
 ```
+
+The exit status is 0 if the run reached its duration, 1 if the robot fell and 2 if the controller failed.
 
 The rest of this README and `docs/` describe the template.
 

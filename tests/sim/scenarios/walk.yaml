@@ -1,0 +1,11 @@
+# Every command axis, up to the limits of the training ranges.
+duration: 65.0
+fall_height: 0.4
+events:
+  - {t: 2.0, command: [0.3, 0.0, 0.0]}
+  - {t: 12.0, command: [0.5, 0.0, 0.0]}
+  - {t: 22.0, command: [0.0, 0.0, 0.0]}
+  - {t: 27.0, command: [0.0, 0.25, 0.0]}
+  - {t: 37.0, command: [0.0, 0.0, 0.7]}
+  - {t: 47.0, command: [-0.3, 0.0, 0.0]}
+  - {t: 57.0, command: [0.0, 0.0, 0.0]}

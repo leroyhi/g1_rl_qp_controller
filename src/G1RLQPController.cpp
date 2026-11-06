@@ -13,10 +13,43 @@
 #include <algorithm>
 #include <cmath>
 
+namespace
+{
+
+/**
+ * Add the reflected rotor inertia of each joint to the robot module, which has none.
+ *
+ * mjlab sets the gains from the armature, as kp = armature * (2 pi f)^2, so plant.json gives it back. This has to happen
+ * before the base controller creates the robots: the TVM robot computes this part of its mass matrix once, on creation.
+ */
+mc_rbdyn::RobotModulePtr withArmature(mc_rbdyn::RobotModulePtr rm, const mc_rtc::Configuration & config)
+{
+  if(!config.has("limits") || !config("limits").has("armature_natural_frequency_hz")) return rm;
+  const double frequency = config("limits")("armature_natural_frequency_hz");
+  const double omega = 2.0 * M_PI * frequency;
+  mc_rtc::Configuration plant;
+  plant.load(config("limits")("plant").operator std::string());
+  const mc_rtc::Configuration joints = plant("joints");
+  for(size_t i = 0; i < joints.size(); ++i)
+  {
+    const mc_rtc::Configuration joint = joints[i];
+    const std::string name = joint("name");
+    const double kp = joint("kp");
+    const int index = rm->mb.jointIndexByName(name);
+    rm->mb.setJointRotorInertia(index, kp / (omega * omega));
+    rm->mb.setJointGearRatio(index, 1.0);
+  }
+  mc_rtc::log::info("[G1RLQPController] QP model: added the armature of {} joints, from kp at f = {} Hz", joints.size(),
+                    frequency);
+  return rm;
+}
+
+} // namespace
+
 G1RLQPController::G1RLQPController(mc_rbdyn::RobotModulePtr rm,
                                      double dt,
                                      const mc_rtc::Configuration & config)
-: mc_control::fsm::Controller(rm, dt, config, Backend::TVM)
+: mc_control::fsm::Controller(withArmature(rm, config), dt, config, Backend::TVM)
 {
   config_ = config;
 
@@ -287,9 +320,10 @@ bool G1RLQPController::byPassQPControl()
   robot().forwardVelocity();
   robot().forwardAcceleration();
 
+  // The measured state: after run(), robot() holds the state the QP integrated forward, with its own accelerations.
   Eigen::VectorXd tau_rl = Eigen::VectorXd::Zero(nbActuatedJoints);
-  const std::vector<std::vector<double> > & q_mbc = robot().mbc().q;
-  const std::vector<std::vector<double> > & q_dot_mbc = robot().mbc().alpha;
+  const std::vector<std::vector<double> > & q_mbc = realRobot().mbc().q;
+  const std::vector<std::vector<double> > & q_dot_mbc = realRobot().mbc().alpha;
 
   int i = 0;
   for(const auto &joint_name : jointNames)
