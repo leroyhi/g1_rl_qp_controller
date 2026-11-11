@@ -1,5 +1,5 @@
 # Scripted runs: g1_sim_scenario drives the commands, so no joystick. Overrides ~/.config/mc_rtc/mc_rtc.yaml.
-MainRobot: G1_29dof
+MainRobot: G1_mode_5
 Enabled: G1RLQPController
 Timestep: 0.002
 IncludeHalfSitController: false

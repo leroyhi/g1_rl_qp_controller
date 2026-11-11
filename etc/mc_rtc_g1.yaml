@@ -1,6 +1,6 @@
 # Run with: mc_mujoco -f etc/mc_rtc_g1.yaml --torque-control
 # Overrides ~/.config/mc_rtc/mc_rtc.yaml for this controller only.
-MainRobot: G1_29dof
+MainRobot: G1_mode_5
 Enabled: G1RLQPController
 Timestep: 0.002
 IncludeHalfSitController: false

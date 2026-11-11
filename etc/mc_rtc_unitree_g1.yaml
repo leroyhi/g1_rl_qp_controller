@@ -1,0 +1,72 @@
+# Run on unitree_sdk2 through mc_unitree2 (MCControlG1):
+#   simulation (unitree_mujoco on the loopback): MCControlG1 --conf etc/mc_rtc_unitree_g1.yaml --network lo
+#   real robot:                                  MCControlG1 --conf etc/mc_rtc_unitree_g1.yaml --network <G1 interface>
+# Overrides ~/.config/mc_rtc/mc_rtc.yaml for this controller only.
+MainRobot: G1_mode_5   # mode_machine 5, rubber hands. MCControlG1 refuses to run on a robot reporting another mode.
+Enabled: G1RLQPController
+Timestep: 0.002
+IncludeHalfSitController: false
+# Sticks: command. Cross: walking policy. Circle: recovery policy. Both arm the policy if needed.
+Plugins: [mc_joystick_plugin]
+
+Unitree:
+  # Used for every G1 model; an entry named after the full robot name (g1_29dof_rev_1_0) would take precedence.
+  # Vectors: 29 values in MOTOR order (unitree_sdk2), whatever the model:
+  #   0-5 left leg (hip pitch, roll, yaw, knee, ankle pitch, roll), 6-11 right leg, 12-14 waist (yaw, roll, pitch),
+  #   15-21 left arm (shoulder pitch, roll, yaw, elbow, wrist roll, pitch, yaw), 22-28 right arm
+  g1:
+    network-interface: lo
+    torso-imu-sensor: TorsoAccelerometer
+    # The pelvis IMU is copied to FloatingBase (branch feat/floating-base-sensor of mc_unitree2), so the observations
+    # and the BodySensor observer read the same sensor as in mc_mujoco. Only orientation, gyro and accelerometer.
+    floating-base-sensor: FloatingBase
+    check-mode-machine: true
+    release-motion-mode: true
+    # Initial mode only: G1RLQPController sets ControlMode = Torque in the datastore, which the interface follows.
+    mode: Position
+    # No Revo2 hands on the robot (rubber hands, model without _Revo2)
+    revo2-hands: false
+
+    # Posture of the initialization and of the waits: the policies' default pose (q0 of policies/*/policy.yaml, the
+    # same for weak and recovery_v0), so the controller starts from it without a jump. Without it, the robot module's
+    # stance is used (knees at 0.67 rad instead of 0.3).
+    q_init: [-0.1, 0.0, 0.0, 0.3, -0.2, 0.0,
+             -0.1, 0.0, 0.0, 0.3, -0.2, 0.0,
+              0.0, 0.0, 0.0,
+              0.35,  0.18, 0.0, 0.87, 0.0, 0.0, 0.0,
+              0.35, -0.18, 0.0, 0.87, 0.0, 0.0, 0.0]
+
+    # Position/Velocity gains (from the mc_unitree2 example, tested on the real G1, mode_machine 5)
+    kp: [300.0, 300.0, 300.0, 300.0, 300.0, 300.0,
+         300.0, 300.0, 300.0, 300.0, 300.0, 300.0,
+         300.0, 300.0, 300.0,
+          80.0,  80.0,  80.0,  80.0, 40.0, 40.0, 40.0,
+          80.0,  80.0,  80.0,  80.0, 40.0, 40.0, 40.0]
+    kd: [3.0, 3.0, 3.0, 3.0, 3.0, 3.0,
+         3.0, 3.0, 3.0, 3.0, 3.0, 3.0,
+         3.0, 3.0, 3.0,
+         3.0, 3.0, 3.0, 3.0, 1.5, 1.5, 1.5,
+         3.0, 3.0, 3.0, 3.0, 1.5, 1.5, 1.5]
+    # Gains of the initial posture and of the waits in the air / on the ground, before the controller runs
+    kp_wait: [300.0, 300.0, 300.0, 300.0, 300.0, 300.0,
+              300.0, 300.0, 300.0, 300.0, 300.0, 300.0,
+              300.0, 300.0, 300.0,
+               80.0,  80.0,  80.0,  80.0, 40.0, 40.0, 40.0,
+               80.0,  80.0,  80.0,  80.0, 40.0, 40.0, 40.0]
+    kd_wait: [3.0, 3.0, 3.0, 3.0, 3.0, 3.0,
+              3.0, 3.0, 3.0, 3.0, 3.0, 3.0,
+              3.0, 3.0, 3.0,
+              3.0, 3.0, 3.0, 3.0, 1.5, 1.5, 1.5,
+              3.0, 3.0, 3.0, 3.0, 1.5, 1.5, 1.5]
+    # Torque mode = inverse PD in the motor driver: q_ref = q + (tau + kd * dq) / kp, tau_ff = 0. kp must be > 0.
+    # Between two commands the driver adds -kp * (q - q_meas) - kd * (dq - dq_meas) to tau: keep these gains soft.
+    kp_torque: [100.0, 100.0, 100.0, 150.0, 40.0, 40.0,
+                100.0, 100.0, 100.0, 150.0, 40.0, 40.0,
+                100.0,  40.0,  40.0,
+                 40.0,  40.0,  40.0,  40.0, 40.0, 20.0, 20.0,
+                 40.0,  40.0,  40.0,  40.0, 40.0, 20.0, 20.0]
+    kd_torque: [2.0, 2.0, 2.0, 4.0, 2.0, 2.0,
+                2.0, 2.0, 2.0, 4.0, 2.0, 2.0,
+                2.0, 2.0, 2.0,
+                1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0,
+                1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]

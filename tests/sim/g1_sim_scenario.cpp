@@ -6,7 +6,7 @@
  *   duration: 60.0
  *   fall_height: 0.4        # optional: a pelvis below this height ends the run
  *   fall_tilt_deg: 80.0     # optional: so does a pelvis tilted beyond this angle
- *   start_armed: true       # optional, true by default: arm the policy after the first step
+ *   start_armed: true       # optional, true by default: walking policy armed after the first step, else disarmed
  *   events:
  *     - {t: 5.0, command: [0.3, 0.0, 0.0]}
  *     - {t: 20.0, push: {body: torso_link, force: [150.0, 0.0, 0.0], duration: 0.1}}
@@ -200,13 +200,24 @@ int main(int argc, char * argv[])
   size_t switchesBeforePush = 0;
   size_t previousSwitches = 0;
   const rlqp::FallSwitch & fallSwitch = ctl.rlRuntime().fallSwitch();
+  bool firstEventStep = true;
   while(sim.data().time < duration)
   {
     const double now = sim.data().time;
-    // After the first step: the FSM state disarms when it starts
+    // After the first step: the FSM state starts on the recovery policy, held by the operator. Scenarios start on the
+    // walking policy, or disarmed holding their posture with start_armed: false.
     if(!firstStep)
     {
-      if(startArmed && !ctl.rlRuntime().armed() && next == 0) ctl.armPolicy();
+      if(firstEventStep)
+      {
+        firstEventStep = false;
+        if(startArmed) ctl.selectWalkingPolicy();
+        else
+        {
+          ctl.holdPolicy();
+          ctl.rlRuntime().holdCurrentPosture(ctl);
+        }
+      }
       while(next < events.size() && events[next].t <= now) apply(events[next++], ctl, sim, joystick, pushTime, now);
     }
     firstStep = false;

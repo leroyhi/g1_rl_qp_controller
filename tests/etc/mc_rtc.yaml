@@ -1,5 +1,5 @@
 # This configuration is used to run a few iterations of the controller
-MainRobot: G1_29dof
+MainRobot: G1_mode_5
 Enabled: G1RLQPController
 
 IncludeHalfSitController: false

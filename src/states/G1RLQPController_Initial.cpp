@@ -8,6 +8,9 @@ void G1RLQPController_Initial::start(mc_control::fsm::Controller & ctl_)
 {
   auto & ctl = static_cast<G1RLQPController &>(ctl_);
   ctl.rlStateRunner.start(ctl, "RL_State");
+  // Start on the recovery policy, held until the operator gives control to the walking policy (cross). The disarmed
+  // hold needs its gains x8 to keep a passive robot up, and those gains diverge when the robot is in the air.
+  ctl.selectRecoveryPolicy();
 }
 
 bool G1RLQPController_Initial::run(mc_control::fsm::Controller & ctl_)

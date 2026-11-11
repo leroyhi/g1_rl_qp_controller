@@ -23,7 +23,7 @@ import torch
 
 ROOT = Path(__file__).resolve().parent.parent
 BUNDLE = ROOT / "policies/fall_switch"
-DEFAULT_XML = ROOT.parent / "g1_mj_description/xml/g1_29dof.xml"
+DEFAULT_XML = ROOT.parent / "g1_mj_description/xml/g1_29dof_rev_1_0.xml"
 DEFAULT_MJLAB = Path.home() / "mjlab"
 
 

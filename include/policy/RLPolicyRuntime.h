@@ -123,6 +123,9 @@ public:
   {
     command_ = new_cmd;
   }
+  /** @brief Hold the current posture of the control robot (target of the torque task while disarmed). */
+  void holdCurrentPosture(G1RLQPController & ctl);
+
   /** @brief Command seen by the policy at its last update. command() remains the operator's value. */
   const Eigen::Vector3d & effectiveCommand() const { return effectiveCommand_; }
 
@@ -142,7 +145,6 @@ private:
   void resetObservationHistory(G1RLQPController & ctl);
   Eigen::VectorXd computeObservation(G1RLQPController & ctl);
   void updateEffectiveCommand();
-  void holdCurrentPosture(G1RLQPController & ctl);
 
   void validateObservationAgainstNetwork() const;
   ObservationContext makeObservationContext(G1RLQPController & ctl);

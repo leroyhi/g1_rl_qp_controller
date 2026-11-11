@@ -1,0 +1,1 @@
+{"nodes": [{"id": "$graphify-root$_ext_onnxruntime_include_core_providers_custom_op_context_h", "label": "custom_op_context.h", "file_type": "code", "source_file": "ext/onnxruntime/include/core/providers/custom_op_context.h", "source_location": "L1"}], "edges": [], "raw_calls": [], "parse_errors": {"first_error_line": 8, "multiline_error": false}}

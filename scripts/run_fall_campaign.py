@@ -45,7 +45,7 @@ VARIANTS = {
 
 def global_config(path, module_dir):
     path.write_text(
-        "MainRobot: G1_29dof\n"
+        "MainRobot: G1_mode_5\n"
         "Enabled: G1RLQPController\n"
         "Timestep: 0.002\n"
         "IncludeHalfSitController: false\n"

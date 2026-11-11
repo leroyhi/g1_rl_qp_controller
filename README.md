@@ -14,7 +14,7 @@ mc_rtc controller for the Unitree G1 29 DoF, forked from the RL-QP controller te
 
 `plant.json` and `observation.json` in `policies/fall_switch/` are the source of truth. `scripts/gen_policy_from_plant.py` generates `policies/conventions.yaml` and each policy's `policy.yaml` and `observations.yaml` from them, so edit the generator rather than the generated files.
 
-- **Robot module:** `G1_29dof` from `mc_g1`. `MainRobot: G1` loads the 23 DoF variant.
+- **Robot module:** `G1_mode_5` from `mc_g1` (bastien-muraccioli fork, mc_g1 PR #4): 29 DoF rev 1.0 with the rubber hands, which matches the lab robot (`mode_machine` 5). `G1` is an alias of it; the deprecated `G1_29dof` is the mode 2 hardware.
 - **Gains:** nominal `kp` and `kd` from `plant.json`, without the training randomisation.
 - **Limits:** torque and velocity come from `plant.json`, the actuators' own limits, which the URDF underestimates on 8 joints. The position band is `pos_limit_soft`. The controller logs what the QP holds at startup. See `limits` in `etc/G1RLQPController.in.yaml`.
 - **Run configuration:** `etc/mc_rtc_g1.yaml`, which leaves the mc_rtc user configuration untouched.
@@ -33,7 +33,7 @@ Install `g1_description`, `mc_g1` and `g1_mj_description` (the MuJoCo model, der
 scripts/run_sim.sh
 ```
 
-The policy starts disarmed. With the gamepad, through `mc_joystick_plugin`:
+The controller starts on the recovery policy, held until Cross gives control to the walking policy. This is how it starts with MCControlG1 too, when Enter is pressed on "Waiting on the ground". With the gamepad, through `mc_joystick_plugin`:
 
 | Input | Effect |
 |---|---|

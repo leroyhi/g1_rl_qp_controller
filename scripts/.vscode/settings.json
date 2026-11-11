@@ -1,0 +1,16 @@
+{
+    "python.autoComplete.extraPaths": [
+        "/home/hippolyte/workspace/src/catkin_data_ws/install/local/lib/python3.10/dist-packages",
+        "/opt/ros/humble/lib/python3.10/site-packages",
+        "/opt/ros/humble/local/lib/python3.10/dist-packages",
+        "/home/hippolyte/workspace/install/lib/python3.10/site-packages",
+        ""
+    ],
+    "python.analysis.extraPaths": [
+        "/home/hippolyte/workspace/src/catkin_data_ws/install/local/lib/python3.10/dist-packages",
+        "/opt/ros/humble/lib/python3.10/site-packages",
+        "/opt/ros/humble/local/lib/python3.10/dist-packages",
+        "/home/hippolyte/workspace/install/lib/python3.10/site-packages",
+        ""
+    ]
+}
