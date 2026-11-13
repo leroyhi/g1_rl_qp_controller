@@ -9,6 +9,12 @@ IncludeHalfSitController: false
 # Sticks: command. Cross: walking policy. Circle: recovery policy. Both arm the policy if needed.
 Plugins: [mc_joystick_plugin]
 
+# GUI state published at 50 Hz, the policy rate, so that scripts/fall_switch_monitor.py gets every value of p. Merged
+# into mc_rtc's GUIServer section: its IPC and TCP settings are kept.
+GUIServer:
+  Enable: true
+  Timestep: 0.02
+
 Unitree:
   # Used for every G1 model; an entry named after the full robot name (g1_29dof_rev_1_0) would take precedence.
   # Vectors: 29 values in MOTOR order (unitree_sdk2), whatever the model:

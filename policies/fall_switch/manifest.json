@@ -1,8 +1,8 @@
 {
   "system": "g1_irrecoverable_fall_switch",
   "files": {
-    "estimator.json": "8003546b7dfa0622",
-    "estimator.onnx": "54a5c2b76b1159d9",
+    "estimator.json": "22601f37856f4f9d",
+    "estimator.onnx": "3fc53dab6e47f234",
     "limit_kernel.json": "a0dda857ff982e91",
     "observation.json": "4b9b20286b9c086c",
     "plant.json": "69fd73357d989d8c",
@@ -12,6 +12,6 @@
   "max_abs_error_vs_torch": {
     "weak.onnx": 4.76837158203125e-07,
     "recovery_v0.onnx": 4.76837158203125e-07,
-    "estimator.onnx": 1.6689300537109375e-06
+    "estimator.onnx": 2.86102294921875e-06
   }
 }
