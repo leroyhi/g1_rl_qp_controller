@@ -7,6 +7,7 @@
 #include <Eigen/Core>
 
 #include <mc_control/fsm/Controller.h>
+#include <mc_joystick_plugin/joystick_inputs.h>
 #include <mc_rtc/Configuration.h>
 #include <mc_tasks/TorqueJointTask.h>
 
@@ -92,6 +93,8 @@ struct G1RLQPController_DLLAPI G1RLQPController : public mc_control::fsm::Contro
   void selectWalkingPolicy();
   /** @brief Give control to the catch policy, arming it if needed. It holds until selectWalkingPolicy(). */
   void selectRecoveryPolicy();
+  /** @brief Move the fall switch's p threshold by steps of FallSwitch::ThresholdStep, within its bounds. */
+  void adjustFallSwitchThreshold(int steps);
 
   /** @brief Enable or disable the CBF-QP layer at runtime. */
   void activateQPControl(bool activate);
@@ -169,6 +172,12 @@ private:
   Eigen::Vector4d joystickFrozen_ = Eigen::Vector4d::Zero();
   bool crossPressed_ = false;
   bool circlePressed_ = false;
+  // Square lowers the fall switch's threshold and triangle raises it. Enum of mc_joystick_plugin, which takes the raw
+  // button number of /dev/input/js0: with Linux's PlayStation driver, 2 (X) is triangle and 3 (Y) is square.
+  joystickButtonInputs thresholdDownButton_ = joystickButtonInputs::Y;
+  joystickButtonInputs thresholdUpButton_ = joystickButtonInputs::X;
+  bool thresholdDownPressed_ = false;
+  bool thresholdUpPressed_ = false;
 
   std::string robotName_;
 

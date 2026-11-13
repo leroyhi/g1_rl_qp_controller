@@ -89,3 +89,8 @@ fall_switch:
   gyro_sensor: FloatingBase
   # Not settled: the bundle's README says 25 (0.5 s), its limit_kernel.json says 10.
   release_dwell_steps: 25
+  # Gamepad buttons that move the p threshold by 0.01, within [0.01, 0.99]. Names of mc_joystick_plugin, which maps the
+  # raw button number of /dev/input/js0: with Linux's PlayStation driver, X is triangle and Y is square.
+  threshold_buttons:
+    down: Y # square
+    up: X # triangle

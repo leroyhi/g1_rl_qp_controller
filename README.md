@@ -23,7 +23,18 @@ mc_rtc controller for the Unitree G1 29 DoF, forked from the RL-QP controller te
 
 ### Dependencies
 
-Install `g1_description`, `mc_g1` and `g1_mj_description` (the MuJoCo model, derived from mjlab's training model) in the same prefix as mc_rtc.
+Install these three in the same prefix as mc_rtc, from the branches that bring the mode 5 robot (`G1_mode_5`, robot `g1_29dof_rev_1_0`):
+
+- `g1_description`: [isri-aist/g1_description#3](https://github.com/isri-aist/g1_description/pull/3), URDF `g1_29dof_rev_1_0.urdf`
+- `mc_g1`: [isri-aist/mc_g1#4](https://github.com/isri-aist/mc_g1/pull/4), robot module `G1_mode_5`
+- `g1_mj_description`: [isri-aist/g1_mj_description#2](https://github.com/isri-aist/g1_mj_description/pull/2), mc_mujoco model `g1_29dof_rev_1_0.xml`
+
+```bash
+git fetch origin pull/<N>/head:pr-<N> && git checkout pr-<N>   # in each repository
+cmake -S . -B build -DCMAKE_INSTALL_PREFIX=$HOME/workspace/install && cmake --build build -j && cmake --install build
+```
+
+`policies/fall_switch/training_mass_model.json` is generated for `G1_mode_5`, whose waist and torso frames are those of the training model. For `G1_29dof`, regenerate it with `scripts/gen_training_mass_model.py --robot G1_29dof`.
 
 `g1_description` must be on `AMENT_PREFIX_PATH`, otherwise mc_rtc cannot resolve the `package://` URIs of the URDF. `scripts/run_sim.sh` does this for a prefix in `~/workspace/install`, or in `G1_INSTALL_PREFIX` if set.
 
@@ -41,6 +52,10 @@ The controller starts on the recovery policy, held until Cross gives control to 
 | Right stick | `yaw_rate` |
 | Cross | Walking policy, arming it if needed |
 | Circle | Recovery policy, arming it if needed. It holds until Cross, and the sticks still command it. |
+| Square | Fall switch threshold on `p` lowered by 0.01, down to 0.01: switches earlier |
+| Triangle | Fall switch threshold on `p` raised by 0.01, up to 0.99: switches later |
+
+The threshold starts at the bundle's `thr` and is kept until the controller restarts. `G1RLQPController_FallSwitch_threshold` logs it. mc_joystick_plugin maps the raw button numbers of `/dev/input/js0`: with Linux's PlayStation driver, triangle is `X` and square is `Y`. If the buttons are swapped on your pad, change `fall_switch.threshold_buttons` in `etc/G1RLQPController.in.yaml`.
 
 `HOLD (disarm)` stays in the GUI, under `G1RLQPController`. Without a gamepad, the same panel has `ARM policy`, and the commands are under `Command`. The fall switch can also take over by itself: untick `Fall switch > Automatic switch` to choose the policy by hand only.
 
@@ -58,16 +73,18 @@ The exit status is 0 if the run reached its duration, 1 if the robot fell and 2 
 
 ### Fall switch
 
-`src/policy/FallSwitch.cpp` runs on the 20 ms policy tick, before the action is chosen. It computes the 37 features of `physics_features()` in mjlab's `scripts/fall_switch/common.py`, holds the estimator's 5-frame window, and applies the rule of `policies/fall_switch/README.md`: switch to `recovery_v0` when `p` exceeds its threshold, give control back after `release_dwell_steps` consecutive ticks inside the limit kernel. During an automatic switch the policy sees a zero command and a stopped gait clock, and the `actions` term always stays the raw action of whichever policy acted last. To reproduce an automatic switch by hand, press Circle with the sticks at rest.
+`src/policy/FallSwitch.cpp` runs on the 20 ms policy tick, before the action is chosen. It computes the feature groups of `physics_features()` in mjlab's `scripts/fall_switch/common.py` that the estimator and the limit kernel name in their `feature_groups`, holds the estimator's 5-frame window, and applies the rule of `policies/fall_switch/README.md`: switch to `recovery_v0` when `p` exceeds its threshold, give control back after `release_dwell_steps` consecutive ticks inside the limit kernel. During an automatic switch the policy sees a zero command and a stopped gait clock, and the `actions` term always stays the raw action of whichever policy acted last. To reproduce an automatic switch by hand, press Circle with the sticks at rest.
 
 `release_dwell_steps` is set in `etc/G1RLQPController.in.yaml`: the bundle's README says 25, its `limit_kernel.json` says 10.
 
-The logs are under `G1RLQPController_FallSwitch_`: `p`, `inside`, `mahalanobis`, `mahalanobis2`, `dwell`, `activePolicy`, `holdingRecovery`, `operatorHold` and `features`.
+Since the v19 bundle (`weak_v19_tqnorm`), the estimator reads 13 features: `tilt`, `feet`, `dcm`, `shoulders` and `ang_mom`. The limit kernel still reads the 37 blind features. `dcm` and `ang_mom` use the body velocities, so the base linear velocity of the real robot: exact in mc_mujoco, where `BodySensor` takes the simulator's, but zero on hardware with an IMU only. Each `FallSwitch` warns about this at startup.
+
+The logs are under `G1RLQPController_FallSwitch_`: `p`, `threshold`, `inside`, `mahalanobis`, `mahalanobis2`, `dwell`, `activePolicy`, `holdingRecovery`, `operatorHold`, `features` (the estimator's input) and `kernelFeatures` (the kernel's). To see when the policy changes in mc_log_ui, plot `holdingRecovery` with `operatorHold`: `activePolicy` is a string.
 
 Three scripts check it:
 
 ```bash
-# Features against mjlab's own function, on the states of a log
+# Features of the estimator and the kernel against mjlab's own function, on the states of a log
 ~/mjlab/.venv/bin/python scripts/check_fall_switch_features.py /tmp/mc-control-G1RLQPController-latest.bin
 # Summary of a log
 python3 scripts/analyze_sim_log.py /tmp/mc-control-G1RLQPController-latest.bin

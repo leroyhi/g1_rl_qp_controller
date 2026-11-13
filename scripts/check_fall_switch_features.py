@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 """Compare the features logged by FallSwitch with mjlab's physics_features() on the same states.
 
-Replays a log through forward kinematics on the training model and through the reference function
-itself, so nothing is reimplemented here. Then recomputes the kernel distance and the state machine.
+Replays a log through forward kinematics and velocities on the training model and through the reference
+function itself, so nothing is reimplemented here. Checks the estimator's and the kernel's inputs, each
+with the groups of its sidecar, recomputes p with the ONNX estimator, the kernel distance and the state
+machine.
 Run it with mjlab's interpreter, from anywhere:
 
   ~/mjlab/.venv/bin/python scripts/check_fall_switch_features.py /tmp/mc-control-G1RLQPController-latest.bin
@@ -23,7 +25,8 @@ import torch
 
 ROOT = Path(__file__).resolve().parent.parent
 BUNDLE = ROOT / "policies/fall_switch"
-DEFAULT_XML = ROOT.parent / "g1_mj_description/xml/g1_29dof_rev_1_0.xml"
+# The training model, which the reference features assume: not the mc_mujoco model of g1_mj_description
+DEFAULT_XML = Path.home() / "mjlab/src/mjlab/asset_zoo/robots/unitree_g1/xmls/g1.xml"
 DEFAULT_MJLAB = Path.home() / "mjlab"
 
 
@@ -82,6 +85,11 @@ def main():
         [column("ff_real_qw"), -column("ff_real_qx"), -column("ff_real_qy"), -column("ff_real_qz")], axis=1
     )[ticks]
     position = np.stack([column(f"ff_real_t{a}") for a in "xyz"], axis=1)[ticks]
+    # What the real robot was given: the BodySensor's base velocity, in world axes, and the encoder velocities
+    base = "Observers_MainPipeline_BodySensor_FloatingBase_velW"
+    angular_w = np.stack([column(f"{base}_w{a}") for a in "xyz"], axis=1)[ticks]
+    linear_w = np.stack([column(f"{base}_v{a}") for a in "xyz"], axis=1)[ticks]
+    alpha = columns("alphaIn", 29)[ticks]
     q = columns("qIn", 29)[ticks]
     tau = columns("tauIn", 29)[ticks]
     target_before = columns("G1RLQPController_RL_q", 29)[ticks - 1]
@@ -89,12 +97,24 @@ def main():
 
     n = len(ticks)
     com = np.zeros((n, len(body_ids), 3))
+    com_quat = np.zeros((n, len(body_ids), 4))
+    com_velocity = np.zeros((n, len(body_ids), 6))
     for i in range(n):
         state.qpos[:3] = position[i]
         state.qpos[3:7] = quat[i]
         state.qpos[7:] = q[i]
-        mujoco.mj_kinematics(model, state)
+        # Free joint: linear velocity of the base origin in world axes, angular velocity in base axes
+        rotation = np.zeros(9)
+        mujoco.mju_quat2Mat(rotation, quat[i])
+        state.qvel[:3] = linear_w[i]
+        state.qvel[3:6] = rotation.reshape(3, 3).T @ angular_w[i]
+        state.qvel[6:] = alpha[i]
+        mujoco.mj_forward(model, state)
         com[i] = state.xipos[1:]
+        for b in body_ids:
+            mujoco.mju_mat2Quat(com_quat[i, b - 1], state.ximat[b])
+            # At the centre of mass, in world axes: (angular, linear)
+            mujoco.mj_objectVelocity(model, state, mujoco.mjtObj.mjOBJ_BODY, b, com_velocity[i, b - 1], 0)
 
     def tensor(array):
         return torch.as_tensor(np.asarray(array), dtype=torch.float32)
@@ -108,9 +128,9 @@ def main():
     )
     robot_data = SimpleNamespace(
         body_com_pos_w=tensor(com),
-        body_com_quat_w=tensor(np.tile([1.0, 0, 0, 0], (n, len(body_ids), 1))),
-        body_com_lin_vel_w=torch.zeros(n, len(body_ids), 3),
-        body_com_ang_vel_w=torch.zeros(n, len(body_ids), 3),
+        body_com_quat_w=tensor(com_quat),
+        body_com_lin_vel_w=tensor(com_velocity[..., 3:]),
+        body_com_ang_vel_w=tensor(com_velocity[..., :3]),
         root_link_quat_w=tensor(quat),
         root_link_pos_w=tensor(position),
         root_link_ang_vel_b=tensor(gyro),
@@ -144,34 +164,74 @@ def main():
     )
     reference, _ = common.physics_features(raw, None)
 
-    columns_blind, index = [], 0
+    reference = reference.numpy()
+
+    offsets, index = {}, 0
     for group, width in common.PHYS_GROUPS.items():
-        if group in common.PHYS_BLIND:
-            columns_blind.extend(range(index, index + width))
+        offsets[group] = range(index, index + width)
         index += width
-    reference = reference[:, columns_blind].numpy()
 
-    logged = columns("G1RLQPController_FallSwitch_features", 37)[ticks]
-    error = np.abs(logged - reference)
-    print(f"{n} policy ticks compared with physics_features()")
-    index = 0
-    for group in common.PHYS_BLIND:
-        width = common.PHYS_GROUPS[group]
-        sensor = common.SENSOR_SIGMA.get(group, float("nan"))
-        print(f"  {group:13s} max error {error[:, index:index + width].max():.2e}  (sensor sigma in training {sensor:g})")
-        index += width
-    print(f"largest error: {error.max():.2e}")
+    def compare(title, groups, entry):
+        cols = [c for g in groups for c in offsets[g]]
+        expected = reference[:, cols]
+        logged = columns(entry, len(cols))[ticks]
+        error = np.abs(logged - expected)
+        print(f"{title}: {len(cols)} features, {n} policy ticks compared with physics_features()")
+        index = 0
+        for group in groups:
+            width = common.PHYS_GROUPS[group]
+            sensor = common.SENSOR_SIGMA.get(group, float("nan"))
+            spread = expected[:, index:index + width].std(axis=0).max()
+            print(f"  {group:13s} max error {error[:, index:index + width].max():.2e}  (spread in the log {spread:.2e},"
+                  f" sensor sigma in training {sensor:g})")
+            index += width
+        print(f"  largest error: {error.max():.2e}")
+        return cols, expected, logged
 
+    estimator = json.loads((BUNDLE / "estimator.json").read_text())
     kernel = json.loads((BUNDLE / "limit_kernel.json").read_text())
-    if kernel["columns_into_phys_vector"] != columns_blind:
-        raise SystemExit("columns_into_phys_vector differs from the blind columns")
-    offset = reference - np.array(kernel["mu"])
+    _, estimator_reference, _ = compare("estimator", estimator["feature_groups"], "G1RLQPController_FallSwitch_features")
+    kernel_cols, kernel_reference, _ = compare(
+        "kernel", kernel["feature_groups"], "G1RLQPController_FallSwitch_kernelFeatures"
+    )
+    if kernel.get("columns_into_phys_vector", kernel_cols) != kernel_cols:
+        raise SystemExit("columns_into_phys_vector differs from the columns of the kernel's groups")
+
+    offset = kernel_reference - np.array(kernel["mu"])
     distance2 = np.einsum("ni,ij,nj->n", offset, np.array(kernel["inv_cov"]), offset)
     logged_distance2 = column("G1RLQPController_FallSwitch_mahalanobis2")[ticks]
-    print(f"Mahalanobis squared, largest error against the reference features: {np.abs(distance2 - logged_distance2).max():.2e}")
+    print(f"Mahalanobis squared, largest error against the reference features: {np.abs(distance2 - logged_distance2).max():.2e}"
+          f" (threshold {kernel['threshold']:.1f})")
+
+    # p from the reference features, through the same window as FallSwitch: edge-padded, oldest frame first
+    try:
+        import onnxruntime
+    except ImportError:
+        onnxruntime = None
+    if onnxruntime is None:
+        print("p not recomputed: no onnxruntime")
+    else:
+        session = onnxruntime.InferenceSession(str(BUNDLE / "estimator.onnx"))
+        z = np.clip((estimator_reference - np.array(estimator["mu"])) / np.array(estimator["sd"]), -8, 8)
+        window = estimator["window"]
+        frames = np.stack([z[np.clip(np.arange(i - window + 1, i + 1), 0, None)] for i in range(n)]).astype(np.float32)
+        logits = session.run(None, {session.get_inputs()[0].name: frames})[0]
+        column_index = estimator["horizons_steps"].index(estimator["switch_horizon_steps"])
+        p_reference = 1 / (1 + np.exp(-logits[:, column_index]))
+        p_logged = column("G1RLQPController_FallSwitch_p")[ticks]
+        # The window restarts on each reset of FallSwitch, so the first ticks can differ
+        print(f"p, largest error against the reference features: {np.abs(p_reference - p_logged).max():.2e}"
+              f" (p in the log: max {p_logged.max():.3f}, p > threshold on {(p_logged > estimator['thr']).sum()} ticks)")
+        flipped = (p_reference > estimator["thr"]) != (p_logged > estimator["thr"])
+        print(f"  ticks on which the reference p is on the other side of the threshold {estimator['thr']:.3f}:"
+              f" {flipped.sum()} at t = {np.round(column('t')[ticks][flipped], 2).tolist()}")
 
     # State machine, recomputed from the logged scores
-    threshold = json.loads((BUNDLE / "estimator.json").read_text())["thr"]
+    # The operator can move the threshold: take the one in force at each tick when the log has it
+    if "G1RLQPController_FallSwitch_threshold" in names:
+        threshold = column("G1RLQPController_FallSwitch_threshold")[ticks]
+    else:
+        threshold = np.full(n, estimator["thr"])
     p = column("G1RLQPController_FallSwitch_p")[ticks]
     inside = logged_distance2 <= kernel["threshold"]
     holding = column("G1RLQPController_FallSwitch_holdingRecovery")[ticks] > 0.5
@@ -183,7 +243,7 @@ def main():
             dwell = dwell + 1 if inside[i] else 0
             if dwell >= required:
                 now, dwell = False, 0
-        elif p[i] > threshold:
+        elif p[i] > threshold[i]:
             now, dwell = True, 0
         replay.append(now)
     print(f"state machine replayed at dwell {required}: {(np.array(replay) != holding).sum()} ticks differ out of {n}")

@@ -18,11 +18,15 @@ namespace rlqp
  * @brief Decides when the catch policy takes over from the walking policy, and when it gives control back.
  *
  * Runs on the policy tick, before the new action is chosen. It owns the two extra ONNX sessions (estimator and catch
- * policy), computes the 37 blind features of physics_features() in mjlab's scripts/fall_switch/common.py, keeps the
- * 5-frame window, and applies the rule of the bundle's README:
+ * policy), computes the feature groups of physics_features() in mjlab's scripts/fall_switch/common.py, keeps the
+ * estimator's window, and applies the rule of the bundle's README:
  *
  *   walking: switch when sigmoid(logits[switch horizon]) > thr
  *   holding: give control back after release_dwell_steps consecutive ticks inside the limit kernel
+ *
+ * The estimator and the limit kernel each read the groups their sidecar names (feature_groups), in that order. They
+ * need not be the same: from the v19 bundle on, the estimator reads tilt, feet, dcm, shoulders and ang_mom, and the
+ * kernel the 37 blind features. dcm and ang_mom need the base linear velocity of the real robot.
  *
  * p and the Mahalanobis distance are computed on every tick so that the logs are continuous. Each one only drives the
  * decision in its own state.
@@ -30,7 +34,10 @@ namespace rlqp
 class FallSwitch
 {
 public:
-  static constexpr int FeatureCount = 37;
+  /** Bounds and step of the operator's threshold adjustment. */
+  static constexpr double ThresholdMin = 0.01;
+  static constexpr double ThresholdMax = 0.99;
+  static constexpr double ThresholdStep = 0.01;
 
   FallSwitch();
   ~FallSwitch();
@@ -73,13 +80,20 @@ public:
   bool holdingRecovery() const { return holding_; }
   double p() const { return p_; }
   double threshold() const { return threshold_; }
+  /** @brief The bundle's threshold, before any adjustment. */
+  double defaultThreshold() const { return defaultThreshold_; }
+  /** @brief Move the switch threshold by delta, clamped to [ThresholdMin, ThresholdMax]. @return The new threshold */
+  double adjustThreshold(double delta);
   bool inside() const { return inside_; }
   double mahalanobis2() const { return mahalanobis2_; }
   double mahalanobis() const;
   double kernelThreshold() const { return kernelThreshold_; }
   int dwell() const { return dwell_; }
   int releaseDwellSteps() const { return releaseDwellSteps_; }
+  /** @brief Input of the estimator, raw (before standardisation) */
   const Eigen::VectorXd & features() const { return features_; }
+  /** @brief Input of the limit kernel */
+  const Eigen::VectorXd & kernelFeatures() const { return kernelFeatures_; }
   size_t switchCount() const { return switchCount_; }
   size_t handBackCount() const { return handBackCount_; }
 
@@ -88,7 +102,8 @@ private:
   {
     int index = 0;
     double mass = 0.0;
-    Eigen::Vector3d com = Eigen::Vector3d::Zero();
+    Eigen::Vector3d com = Eigen::Vector3d::Zero(); ///< In the body frame
+    Eigen::Matrix3d inertia = Eigen::Matrix3d::Zero(); ///< About the centre of mass, in the body axes
   };
 
   /** A joint read by limit_margin, track_err and tau_sat. */
@@ -103,7 +118,10 @@ private:
 
   struct Estimator;
 
-  void computeFeatures(const mc_rbdyn::Robot & realRobot, const Eigen::VectorXd & previousTarget);
+  /** @brief Fill physics_, every implemented group in PhysicsGroups order */
+  void computePhysics(const mc_rbdyn::Robot & realRobot, const Eigen::VectorXd & previousTarget);
+  /** @return The columns of physics_ holding these groups, in this order. Throws on a group that is not implemented. */
+  static std::vector<int> columnsOf(const std::vector<std::string> & groups, const std::string & sidecar);
   void pushFrame();
   void updateScores();
 
@@ -118,21 +136,28 @@ private:
 
   std::vector<Body> bodies_;
   std::vector<Eigen::Vector3d> bodyCom_;
+  std::vector<Eigen::Vector3d> bodyComVel_;
   double totalMass_ = 0.0;
   size_t leftFoot_ = 0, rightFoot_ = 0, leftShoulder_ = 0, rightShoulder_ = 0, leftHip_ = 0, rightHip_ = 0;
   std::vector<LimbJoint> limbJoints_;
 
   int window_ = 0;
+  int featureCount_ = 0; ///< Width of the estimator's input
+  std::vector<int> estimatorColumns_;
+  std::vector<int> kernelColumns_;
   int switchColumn_ = 0;
   Eigen::VectorXd mu_;
   Eigen::VectorXd sd_;
   double threshold_ = 0.0;
+  double defaultThreshold_ = 0.0;
   Eigen::VectorXd kernelMu_;
   Eigen::MatrixXd kernelInvCov_;
   double kernelThreshold_ = 0.0;
   int releaseDwellSteps_ = 0;
 
+  Eigen::VectorXd physics_;
   Eigen::VectorXd features_;
+  Eigen::VectorXd kernelFeatures_;
   std::vector<float> frames_; ///< Standardised window, oldest frame first
   bool windowEmpty_ = true;
 

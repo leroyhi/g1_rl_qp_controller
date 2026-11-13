@@ -57,6 +57,9 @@ struct FakeJoystick
   Eigen::Vector2d right = Eigen::Vector2d::Zero();
   bool cross = false;
   bool circle = false;
+  // As mc_joystick_plugin reports a PlayStation pad under Linux: triangle is X and square is Y
+  bool triangle = false;
+  bool square = false;
 
   void publish(mc_control::fsm::Controller & ctl)
   {
@@ -64,8 +67,23 @@ struct FakeJoystick
     datastore.make<bool>("Joystick::connected", true);
     datastore.make_call("Joystick::Stick", [this](joystickAnalogicInputs stick) -> Eigen::Vector2d
                         { return stick == joystickAnalogicInputs::L_STICK ? left : right; });
-    datastore.make_call("Joystick::Button", [this](joystickButtonInputs button) -> bool
-                        { return button == joystickButtonInputs::A ? cross : button == joystickButtonInputs::B && circle; });
+    datastore.make_call("Joystick::Button",
+                        [this](joystickButtonInputs button) -> bool
+                        {
+                          switch(button)
+                          {
+                            case joystickButtonInputs::A:
+                              return cross;
+                            case joystickButtonInputs::B:
+                              return circle;
+                            case joystickButtonInputs::X:
+                              return triangle;
+                            case joystickButtonInputs::Y:
+                              return square;
+                            default:
+                              return false;
+                          }
+                        });
   }
 };
 
@@ -100,8 +118,11 @@ void apply(const Event & event,
     pad("right", joystick.right);
     pad("cross", joystick.cross);
     pad("circle", joystick.circle);
-    mc_rtc::log::info("[scenario] t={:.3f} pad: left {}, right {}, cross {}, circle {}", now, joystick.left.transpose(),
-                      joystick.right.transpose(), joystick.cross, joystick.circle);
+    pad("triangle", joystick.triangle);
+    pad("square", joystick.square);
+    mc_rtc::log::info("[scenario] t={:.3f} pad: left {}, right {}, cross {}, circle {}, triangle {}, square {}", now,
+                      joystick.left.transpose(), joystick.right.transpose(), joystick.cross, joystick.circle,
+                      joystick.triangle, joystick.square);
   }
   if(config.has("policy"))
   {

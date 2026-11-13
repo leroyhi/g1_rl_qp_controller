@@ -72,6 +72,23 @@ G1RLQPController::G1RLQPController(mc_rbdyn::RobotModulePtr rm,
   initializeRobotBasics();
 
   rlRuntime_.configure(config_, *this, torqueJointTask);
+  if(config_.has("fall_switch") && config_("fall_switch").has("threshold_buttons"))
+  {
+    const mc_rtc::Configuration buttons = config_("fall_switch")("threshold_buttons");
+    // strToButtons falls back to A, cross, on an unknown name: check the round trip instead
+    const auto button = [](const std::string & name)
+    {
+      const joystickButtonInputs out = strToButtons(name);
+      if(buttons2str(out) != name)
+        mc_rtc::log::error_and_throw("[G1RLQPController] fall_switch.threshold_buttons: unknown button '{}'", name);
+      if(out == joystickButtonInputs::A || out == joystickButtonInputs::B)
+        mc_rtc::log::error_and_throw("[G1RLQPController] fall_switch.threshold_buttons: {} already selects a policy",
+                                     name);
+      return out;
+    };
+    thresholdDownButton_ = button(buttons("down"));
+    thresholdUpButton_ = button(buttons("up"));
+  }
 
   addGui();
   addLog();
@@ -141,10 +158,17 @@ void G1RLQPController::RLuseJoyStickInputs()
   // On the rising edge: the plugin's ButtonEvent also fires on a release
   const bool cross = datastore().call<bool>("Joystick::Button", joystickButtonInputs::A);
   const bool circle = datastore().call<bool>("Joystick::Button", joystickButtonInputs::B);
+  // By value: an lvalue would make the datastore look for a bool(joystickButtonInputs &) and throw
+  const bool thresholdDown = datastore().call<bool>("Joystick::Button", joystickButtonInputs(thresholdDownButton_));
+  const bool thresholdUp = datastore().call<bool>("Joystick::Button", joystickButtonInputs(thresholdUpButton_));
   if(cross && !crossPressed_) selectWalkingPolicy();
   if(circle && !circlePressed_) selectRecoveryPolicy();
+  if(thresholdDown && !thresholdDownPressed_) adjustFallSwitchThreshold(-1);
+  if(thresholdUp && !thresholdUpPressed_) adjustFallSwitchThreshold(1);
   crossPressed_ = cross;
   circlePressed_ = circle;
+  thresholdDownPressed_ = thresholdDown;
+  thresholdUpPressed_ = thresholdUp;
 
   // Sticks: x is up and y is left, in [0, 1] with their rest position at 0.5
   const double maxVelY = std::min(maxVelCmd, rlRuntime_.commandMax()(1));
@@ -229,6 +253,19 @@ void G1RLQPController::selectWalkingPolicy()
   armPolicy();
   rlRuntime_.fallSwitch().forceWalking();
   mc_rtc::log::info("[G1RLQPController] Operator: {} takes control", rlRuntime_.fallSwitch().walkingPolicy());
+}
+
+void G1RLQPController::adjustFallSwitchThreshold(int steps)
+{
+  rlqp::FallSwitch & fallSwitch = rlRuntime_.fallSwitch();
+  if(!fallSwitch.configured()) return;
+  const double before = fallSwitch.threshold();
+  const double after = fallSwitch.adjustThreshold(steps * rlqp::FallSwitch::ThresholdStep);
+  if(after == before)
+    mc_rtc::log::warning("[G1RLQPController] Fall switch threshold already at its bound: {:.4f}", after);
+  else
+    mc_rtc::log::info("[G1RLQPController] Fall switch threshold: {:.4f} -> {:.4f} (bundle: {:.4f})", before, after,
+                      fallSwitch.defaultThreshold());
 }
 
 void G1RLQPController::selectRecoveryPolicy()
@@ -414,6 +451,7 @@ void G1RLQPController::addLog()
   {
     const rlqp::FallSwitch & fallSwitch = rlRuntime_.fallSwitch();
     logger().addLogEntry("G1RLQPController_FallSwitch_p", [&fallSwitch]() { return fallSwitch.p(); });
+    logger().addLogEntry("G1RLQPController_FallSwitch_threshold", [&fallSwitch]() { return fallSwitch.threshold(); });
     logger().addLogEntry("G1RLQPController_FallSwitch_inside", [&fallSwitch]() { return fallSwitch.inside(); });
     logger().addLogEntry("G1RLQPController_FallSwitch_mahalanobis", [&fallSwitch]() { return fallSwitch.mahalanobis(); });
     logger().addLogEntry("G1RLQPController_FallSwitch_mahalanobis2",
@@ -427,6 +465,8 @@ void G1RLQPController::addLog()
                          [this]() { return rlRuntime_.activePolicyName(); });
     logger().addLogEntry("G1RLQPController_FallSwitch_features",
                          [&fallSwitch]() -> const Eigen::VectorXd & { return fallSwitch.features(); });
+    logger().addLogEntry("G1RLQPController_FallSwitch_kernelFeatures",
+                         [&fallSwitch]() -> const Eigen::VectorXd & { return fallSwitch.kernelFeatures(); });
   }
 
   // Log current policy (name and convention)
@@ -461,6 +501,9 @@ void G1RLQPController::addGui()
       mc_rtc::gui::Label("Active policy", [this]() { return rlRuntime_.activePolicyName(); }),
       mc_rtc::gui::Label("p", [&fallSwitch]() { return fallSwitch.p(); }),
       mc_rtc::gui::Label("p threshold", [&fallSwitch]() { return fallSwitch.threshold(); }),
+      mc_rtc::gui::Label("p threshold of the bundle", [&fallSwitch]() { return fallSwitch.defaultThreshold(); }),
+      mc_rtc::gui::Button("Lower the threshold (square)", [this]() { adjustFallSwitchThreshold(-1); }),
+      mc_rtc::gui::Button("Raise the threshold (triangle)", [this]() { adjustFallSwitchThreshold(1); }),
       mc_rtc::gui::Label("Inside the limit kernel", [&fallSwitch]() { return fallSwitch.inside() ? "Yes" : "No"; }),
       mc_rtc::gui::Label("Mahalanobis squared", [&fallSwitch]() { return fallSwitch.mahalanobis2(); }),
       mc_rtc::gui::Label("Mahalanobis squared threshold", [&fallSwitch]() { return fallSwitch.kernelThreshold(); }),

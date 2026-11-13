@@ -1,3 +1,8 @@
+> **Note (v19 bundle, `weak_v19_tqnorm`):** `weak.onnx`, `estimator.onnx`, `estimator.json`, `limit_kernel.json` and
+> `manifest.json` come from `deploy_v19`. The estimator now reads 13 features (`tilt`, `feet`, `dcm`, `shoulders`,
+> `ang_mom`, see `estimator.json`) with `thr` 0.9166, and the kernel's threshold is 47.09. The rest of this README
+> describes the previous bundle (37 blind features, `thr` 0.825).
+
 # G1 irrecoverable-fall switch — deployment bundle
 
 Three ONNX graphs and one ellipsoid. A low-gain walking policy walks; an estimator
